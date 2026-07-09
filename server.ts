@@ -3,7 +3,6 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
-import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { Applicant, AiEvaluation, HrEvaluation } from "./src/types.js";
@@ -41,23 +40,41 @@ function hashPassword(password: string): string {
 }
 
 try {
+  let configData: any = null;
   const configPath = path.join(process.cwd(), "firebase-applet-config.json");
   if (fs.existsSync(configPath)) {
-    const configData = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    try {
+      configData = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    } catch (parseErr) {
+      console.error("Error parsing firebase-applet-config.json:", parseErr);
+    }
+  }
+
+  // Support fallback to environment variables
+  const apiKey = configData?.apiKey || process.env.FIREBASE_API_KEY;
+  const authDomain = configData?.authDomain || process.env.FIREBASE_AUTH_DOMAIN;
+  const projectId = configData?.projectId || process.env.FIREBASE_PROJECT_ID;
+  const storageBucket = configData?.storageBucket || process.env.FIREBASE_STORAGE_BUCKET;
+  const messagingSenderId = configData?.messagingSenderId || process.env.FIREBASE_MESSAGING_SENDER_ID;
+  const appId = configData?.appId || process.env.FIREBASE_APP_ID;
+  const dbId = configData?.firestoreDatabaseId || process.env.FIREBASE_DATABASE_ID || "(default)";
+
+  if (apiKey && projectId && appId) {
     const firebaseApp = initializeApp({
-      apiKey: configData.apiKey,
-      authDomain: configData.authDomain,
-      projectId: configData.projectId,
-      storageBucket: configData.storageBucket,
-      messagingSenderId: configData.messagingSenderId,
-      appId: configData.appId
+      apiKey,
+      authDomain,
+      projectId,
+      storageBucket,
+      messagingSenderId,
+      appId
     });
-    const dbId = configData.firestoreDatabaseId || "(default)";
     db = initializeFirestore(firebaseApp, {
       experimentalForceLongPolling: true,
     }, dbId);
     useFirebase = true;
-    console.log(`Firebase initialized successfully with project: ${configData.projectId} and database: ${dbId}`);
+    console.log(`Firebase initialized successfully with project: ${projectId} and database: ${dbId}`);
+  } else {
+    console.warn("No valid Firebase credentials found in firebase-applet-config.json or environment variables. Falling back to local files.");
   }
 } catch (err) {
   console.error("Firebase initialization failed, falling back to local JSON files:", err);
@@ -182,6 +199,24 @@ async function syncDatabase() {
     console.log("Firebase not configured. Using local JSON files for data persistence.");
   }
 }
+
+let syncPromise: Promise<void> | null = null;
+
+async function ensureDbSynced(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!syncPromise) {
+    syncPromise = syncDatabase();
+  }
+  try {
+    await syncPromise;
+    next();
+  } catch (err) {
+    console.error("Database synchronization failed during request processing:", err);
+    next();
+  }
+}
+
+// Register the database sync gate middleware
+app.use(ensureDbSynced);
 
 const SESSION_SECRET = process.env.SESSION_SECRET || "hse-evaluation-portal-secret-key-2026-fallback";
 
@@ -864,6 +899,28 @@ app.post("/api/submit", async (req, res) => {
   }
 });
 
+// Debug Status Endpoint for troubleshooting Firebase & local persistence on Vercel
+app.get("/api/debug-status", (req, res) => {
+  res.json({
+    success: true,
+    vercel: !!process.env.VERCEL,
+    nodeEnv: process.env.NODE_ENV,
+    useFirebase,
+    dbInitialized: !!db,
+    adminsCount: cachedAdmins.length,
+    applicantsCount: cachedApplicants.length,
+    firebaseEnvConfigured: {
+      apiKey: !!process.env.FIREBASE_API_KEY,
+      authDomain: !!process.env.FIREBASE_AUTH_DOMAIN,
+      projectId: !!process.env.FIREBASE_PROJECT_ID,
+      storageBucket: !!process.env.FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: !!process.env.FIREBASE_MESSAGING_SENDER_ID,
+      appId: !!process.env.FIREBASE_APP_ID,
+      databaseId: !!process.env.FIREBASE_DATABASE_ID
+    }
+  });
+});
+
 // 2. Admin Login
 app.post("/api/admin/login", (req, res) => {
   const { email, password } = req.body;
@@ -1201,7 +1258,8 @@ async function startServer() {
 
   // Vite integration
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
+    const { createServer } = await import("vite");
+    const vite = await createServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
