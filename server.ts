@@ -6,13 +6,9 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { Applicant, AiEvaluation, HrEvaluation } from "./src/types.js";
-import { initializeApp } from "firebase/app";
-import { initializeFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, setLogLevel } from "firebase/firestore";
+import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
-
-// Suppress internal Firebase/Firestore benign warning logs (e.g. idle connection resets)
-setLogLevel("error");
 
 // Resolve paths for ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -29,8 +25,8 @@ const DB_DIR = path.join(process.cwd(), "data");
 const DB_FILE = path.join(DB_DIR, "applicants.json");
 const ADMINS_FILE = path.join(DB_DIR, "admins.json");
 
-let db: any = null;
-let useFirebase = false;
+let supabase: any = null;
+let useSupabase = false;
 let cachedApplicants: Applicant[] = [];
 let cachedAdmins: any[] = [];
 
@@ -40,44 +36,19 @@ function hashPassword(password: string): string {
 }
 
 try {
-  let configData: any = null;
-  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-  if (fs.existsSync(configPath)) {
-    try {
-      configData = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    } catch (parseErr) {
-      console.error("Error parsing firebase-applet-config.json:", parseErr);
-    }
-  }
-
   // Support fallback to environment variables
-  const apiKey = configData?.apiKey || process.env.FIREBASE_API_KEY;
-  const authDomain = configData?.authDomain || process.env.FIREBASE_AUTH_DOMAIN;
-  const projectId = configData?.projectId || process.env.FIREBASE_PROJECT_ID;
-  const storageBucket = configData?.storageBucket || process.env.FIREBASE_STORAGE_BUCKET;
-  const messagingSenderId = configData?.messagingSenderId || process.env.FIREBASE_MESSAGING_SENDER_ID;
-  const appId = configData?.appId || process.env.FIREBASE_APP_ID;
-  const dbId = configData?.firestoreDatabaseId || process.env.FIREBASE_DATABASE_ID || "(default)";
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
 
-  if (apiKey && projectId && appId) {
-    const firebaseApp = initializeApp({
-      apiKey,
-      authDomain,
-      projectId,
-      storageBucket,
-      messagingSenderId,
-      appId
-    });
-    db = initializeFirestore(firebaseApp, {
-      experimentalForceLongPolling: true,
-    }, dbId);
-    useFirebase = true;
-    console.log(`Firebase initialized successfully with project: ${projectId} and database: ${dbId}`);
+  if (supabaseUrl && supabaseKey) {
+    supabase = createClient(supabaseUrl, supabaseKey);
+    useSupabase = true;
+    console.log(`Supabase client initialized successfully with URL: ${supabaseUrl}`);
   } else {
-    console.warn("No valid Firebase credentials found in firebase-applet-config.json or environment variables. Falling back to local files.");
+    console.warn("No valid Supabase credentials found in environment variables. Falling back to local files.");
   }
 } catch (err) {
-  console.error("Firebase initialization failed, falling back to local JSON files:", err);
+  console.error("Supabase initialization failed, falling back to local JSON files:", err);
 }
 
 // Synchronize and initialize cached data
@@ -119,62 +90,89 @@ async function syncDatabase() {
     console.error("Error reading local applicants file:", err);
   }
 
-  if (useFirebase && db) {
+  if (useSupabase && supabase) {
     try {
-      console.log("Synchronizing with cloud Firestore...");
+      console.log("Synchronizing with cloud Supabase...");
       
-      // Load admins from Firestore
-      const adminsCol = collection(db, "admins");
-      const adminsSnapshot = await getDocs(adminsCol);
-      const firebaseAdmins: any[] = [];
-      adminsSnapshot.forEach(docSnap => {
-        firebaseAdmins.push({ id: docSnap.id, ...docSnap.data() });
-      });
+      // Load admins from Supabase
+      const { data: supabaseAdmins, error: adminsErr } = await supabase
+        .from("admins")
+        .select("*");
 
-      if (firebaseAdmins.length > 0) {
-        cachedAdmins = firebaseAdmins;
-        console.log(`Loaded ${cachedAdmins.length} admins from Firestore.`);
+      if (adminsErr) {
+        throw new Error(`Failed to load admins: ${adminsErr.message}`);
+      }
+
+      if (supabaseAdmins && supabaseAdmins.length > 0) {
+        cachedAdmins = supabaseAdmins;
+        console.log(`Loaded ${cachedAdmins.length} admins from Supabase.`);
       } else {
-        // Migrate local admins to Firestore
-        console.log("No admins in Firestore. Migrating local admins to Firestore...");
+        // Migrate local admins to Supabase
+        console.log("No admins in Supabase. Migrating local admins to Supabase...");
         for (const admin of localAdmins) {
-          const { id, ...adminData } = admin;
-          await setDoc(doc(db, "admins", id || "admin-default"), adminData);
+          const { error: insertErr } = await supabase
+            .from("admins")
+            .upsert({
+              id: admin.id,
+              email: admin.email,
+              passwordHash: admin.passwordHash,
+              createdAt: admin.createdAt
+            });
+          if (insertErr) {
+            console.error(`Failed to migrate admin ${admin.email}:`, insertErr);
+          }
         }
         cachedAdmins = localAdmins;
       }
 
-      // Load applicants from Firestore
-      const applicantsCol = collection(db, "applicants");
-      const applicantsSnapshot = await getDocs(applicantsCol);
-      const firebaseApplicants: Applicant[] = [];
-      applicantsSnapshot.forEach(docSnap => {
-        firebaseApplicants.push({ id: docSnap.id, ...docSnap.data() } as Applicant);
-      });
+      // Load applicants from Supabase
+      const { data: supabaseApplicants, error: applicantsErr } = await supabase
+        .from("applicants")
+        .select("*");
 
-      if (firebaseApplicants.length > 0) {
-        cachedApplicants = firebaseApplicants;
-        console.log(`Loaded ${cachedApplicants.length} applicants from Firestore.`);
+      if (applicantsErr) {
+        throw new Error(`Failed to load applicants: ${applicantsErr.message}`);
+      }
 
-        const firebaseIds = new Set(firebaseApplicants.map(a => a.id));
+      const loadedApplicants: Applicant[] = [];
+      if (supabaseApplicants && supabaseApplicants.length > 0) {
+        supabaseApplicants.forEach((row: any) => {
+          loadedApplicants.push({ id: row.id, ...row.data } as Applicant);
+        });
+        cachedApplicants = loadedApplicants;
+        console.log(`Loaded ${cachedApplicants.length} applicants from Supabase.`);
+
+        const supabaseIds = new Set(loadedApplicants.map(a => a.id));
         let migratedCount = 0;
         for (const applicant of localApplicants) {
-          if (!firebaseIds.has(applicant.id)) {
+          if (!supabaseIds.has(applicant.id)) {
             const { id, ...applicantData } = applicant;
-            await setDoc(doc(db, "applicants", applicant.id), applicantData);
-            cachedApplicants.push(applicant);
-            migratedCount++;
+            const { error: upsertErr } = await supabase
+              .from("applicants")
+              .upsert({ id: applicant.id, data: applicantData });
+            
+            if (!upsertErr) {
+              cachedApplicants.push(applicant);
+              migratedCount++;
+            } else {
+              console.error(`Failed to migrate applicant ${applicant.id}:`, upsertErr);
+            }
           }
         }
         if (migratedCount > 0) {
-          console.log(`Migrated ${migratedCount} new local applicants to Firestore.`);
+          console.log(`Migrated ${migratedCount} new local applicants to Supabase.`);
         }
       } else {
-        // Migrate all local applicants to Firestore
-        console.log(`No applicants in Firestore. Migrating ${localApplicants.length} local applicants...`);
+        // Migrate all local applicants to Supabase
+        console.log(`No applicants in Supabase. Migrating ${localApplicants.length} local applicants...`);
         for (const applicant of localApplicants) {
           const { id, ...applicantData } = applicant;
-          await setDoc(doc(db, "applicants", applicant.id), applicantData);
+          const { error: upsertErr } = await supabase
+            .from("applicants")
+            .upsert({ id: applicant.id, data: applicantData });
+          if (upsertErr) {
+            console.error(`Failed to migrate applicant ${applicant.id}:`, upsertErr);
+          }
         }
         cachedApplicants = localApplicants;
       }
@@ -187,16 +185,16 @@ async function syncDatabase() {
         console.warn("Could not write fallback cache files (expected in read-only environments like Vercel):", fsErr);
       }
       
-      console.log("Database synchronization with Firestore complete!");
-    } catch (err) {
-      console.error("Failed to sync with Firestore. Using local files as fallback.", err);
+      console.log("Database synchronization with Supabase complete!");
+    } catch (err: any) {
+      console.error("Failed to sync with Supabase. Using local files as fallback.", err);
       cachedAdmins = localAdmins;
       cachedApplicants = localApplicants;
     }
   } else {
     cachedAdmins = localAdmins;
     cachedApplicants = localApplicants;
-    console.log("Firebase not configured. Using local JSON files for data persistence.");
+    console.log("Supabase not configured. Using local JSON files for data persistence.");
   }
 }
 
@@ -274,16 +272,25 @@ async function writeAdmins(admins: any[]) {
     console.error("Error writing admins (this is fine in read-only environments like Vercel):", err);
   }
 
-  if (useFirebase && db) {
+  if (useSupabase && supabase) {
     try {
       await Promise.all(
         admins.map(async (admin) => {
-          const { id, ...adminData } = admin;
-          await setDoc(doc(db, "admins", id || "admin-default"), adminData);
+          const { error: upsertErr } = await supabase
+            .from("admins")
+            .upsert({
+              id: admin.id,
+              email: admin.email,
+              passwordHash: admin.passwordHash,
+              createdAt: admin.createdAt
+            });
+          if (upsertErr) {
+            console.error(`Failed to sync writeAdmins to Supabase:`, upsertErr);
+          }
         })
       );
     } catch (err) {
-      console.error("Failed to sync writeAdmins to Firestore:", err);
+      console.error("Failed to sync writeAdmins to Supabase:", err);
     }
   }
 }
@@ -605,16 +612,21 @@ async function writeDB(applicants: Applicant[]) {
     console.error("Error writing database (this is fine in read-only environments like Vercel):", err);
   }
 
-  if (useFirebase && db) {
+  if (useSupabase && supabase) {
     try {
       await Promise.all(
         applicants.map(async (applicant) => {
           const { id, ...applicantData } = applicant;
-          await setDoc(doc(db, "applicants", applicant.id), applicantData);
+          const { error: upsertErr } = await supabase
+            .from("applicants")
+            .upsert({ id: applicant.id, data: applicantData });
+          if (upsertErr) {
+            console.error(`Failed to sync writeDB to Supabase:`, upsertErr);
+          }
         })
       );
     } catch (err) {
-      console.error("Failed to sync writeDB to Firestore:", err);
+      console.error("Failed to sync writeDB to Supabase:", err);
     }
   }
 }
@@ -899,24 +911,21 @@ app.post("/api/submit", async (req, res) => {
   }
 });
 
-// Debug Status Endpoint for troubleshooting Firebase & local persistence on Vercel
+// Debug Status Endpoint for troubleshooting Supabase & local persistence on Vercel
 app.get("/api/debug-status", (req, res) => {
   res.json({
     success: true,
     vercel: !!process.env.VERCEL,
     nodeEnv: process.env.NODE_ENV,
-    useFirebase,
-    dbInitialized: !!db,
+    useSupabase,
+    dbInitialized: !!supabase,
     adminsCount: cachedAdmins.length,
     applicantsCount: cachedApplicants.length,
-    firebaseEnvConfigured: {
-      apiKey: !!process.env.FIREBASE_API_KEY,
-      authDomain: !!process.env.FIREBASE_AUTH_DOMAIN,
-      projectId: !!process.env.FIREBASE_PROJECT_ID,
-      storageBucket: !!process.env.FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: !!process.env.FIREBASE_MESSAGING_SENDER_ID,
-      appId: !!process.env.FIREBASE_APP_ID,
-      databaseId: !!process.env.FIREBASE_DATABASE_ID
+    supabaseEnvConfigured: {
+      url: !!process.env.SUPABASE_URL,
+      publishableKey: !!process.env.SUPABASE_PUBLISHABLE_KEY,
+      secretKey: !!process.env.SUPABASE_SECRET_KEY,
+      jwksUrl: !!process.env.SUPABASE_JWKS_URL
     }
   });
 });
@@ -1069,11 +1078,17 @@ app.delete("/api/admin/delete-admin/:id", requireAdmin, async (req, res) => {
   admins.splice(index, 1);
   await writeAdmins(admins);
 
-  if (useFirebase && db) {
+  if (useSupabase && supabase) {
     try {
-      await deleteDoc(doc(db, "admins", id));
+      const { error: deleteErr } = await supabase
+        .from("admins")
+        .delete()
+        .eq("id", id);
+      if (deleteErr) {
+        console.error("Error deleting admin from Supabase:", deleteErr);
+      }
     } catch (err) {
-      console.error("Error deleting admin from Firestore:", err);
+      console.error("Error deleting admin from Supabase:", err);
     }
   }
 
@@ -1231,11 +1246,17 @@ app.delete("/api/admin/applicants/:id", requireAdmin, async (req, res) => {
   applicants.splice(index, 1);
   await writeDB(applicants);
 
-  if (useFirebase && db) {
+  if (useSupabase && supabase) {
     try {
-      await deleteDoc(doc(db, "applicants", req.params.id));
+      const { error: deleteErr } = await supabase
+        .from("applicants")
+        .delete()
+        .eq("id", req.params.id);
+      if (deleteErr) {
+        console.error("Error deleting document from Supabase:", deleteErr);
+      }
     } catch (err) {
-      console.error("Error deleting document from Firestore:", err);
+      console.error("Error deleting document from Supabase:", err);
     }
   }
 
@@ -1247,7 +1268,7 @@ export default app;
 
 // Handle serving the React SPA correctly
 async function startServer() {
-  // Synchronize database with Firestore on start
+  // Synchronize database with Supabase on start
   await syncDatabase();
 
   if (process.env.VERCEL) {
