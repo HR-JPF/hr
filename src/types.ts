@@ -26,6 +26,15 @@ export interface PersonalInfo {
   cvFileName?: string;
   certsBase64?: string;
   certsFileName?: string;
+  adminDocuments?: AdminDocument[];
+}
+
+export interface AdminDocument {
+  id: string;
+  name: string;
+  fileName: string;
+  base64: string;
+  uploadedAt: string;
 }
 
 export interface IndustryExperience {
@@ -101,6 +110,13 @@ export interface HrEvaluation {
   reviewedAt: string;
 }
 
+export interface InterviewSchedule {
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  type: string; // 'remote' or 'in_person'
+  whatsappSent?: boolean;
+}
+
 export interface Applicant {
   id: string; // Application Number (e.g., HSE-2026-001)
   status: ApplicationStatus;
@@ -111,6 +127,7 @@ export interface Applicant {
   examAnswers: ExamAnswers;
   aiEvaluation?: AiEvaluation;
   hrEvaluation?: HrEvaluation;
+  interviewSchedule?: InterviewSchedule;
 }
 
 export interface DashboardStats {

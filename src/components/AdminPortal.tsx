@@ -55,6 +55,15 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
   const [certFilter, setCertFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('date');
   const [sortOrder, setSortOrder] = useState<string>('desc');
+  const [manualEvalFilter, setManualEvalFilter] = useState<string>('all');
+
+  // Hybrid WhatsApp Interview Scheduling states
+  const [activeSubTab, setActiveSubTab] = useState<'applicants' | 'schedules'>('applicants');
+  const [schedulingApplicant, setSchedulingApplicant] = useState<Applicant | null>(null);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [scheduleName, setScheduleName] = useState('');
+  const [scheduleType, setScheduleType] = useState('remote');
 
   // Manual HR Evaluation form state
   const [hrEvalForm, setHrEvalForm] = useState<HrEvaluation>({
@@ -73,6 +82,14 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
   const [reviewStatus, setReviewStatus] = useState<ApplicationStatus>('reviewing');
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [logoStateTrigger, setLogoStateTrigger] = useState(0);
+
+  // File Preview state
+  const [previewFile, setPreviewFile] = useState<{ name: string; base64: string; fileName: string } | null>(null);
+
+  // Admin Document Upload states
+  const [newDocName, setNewDocName] = useState('');
+  const [newDocFile, setNewDocFile] = useState<File | null>(null);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -178,7 +195,8 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
           experience: experienceFilter !== 'all' ? experienceFilter : '',
           hasCert: certFilter !== 'all' ? certFilter : '',
           sortBy,
-          sortOrder
+          sortOrder,
+          manualEval: manualEvalFilter
         });
 
         const appRes = await fetch(`/api/admin/applicants?${queryParams}`, { headers });
@@ -199,7 +217,7 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
     };
 
     fetchAdminData();
-  }, [isAuthenticated, searchTerm, statusFilter, experienceFilter, certFilter, sortBy, sortOrder, refreshTrigger]);
+  }, [isAuthenticated, searchTerm, statusFilter, experienceFilter, certFilter, sortBy, sortOrder, manualEvalFilter, refreshTrigger]);
 
   // Handle Login
   const handleLogin = async (e: React.FormEvent) => {
@@ -369,6 +387,57 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
     document.body.removeChild(link);
   };
 
+  // Convert base64 data to Blob URL and open the previewer modal
+  const handlePreviewAttachment = (base64Data?: string, fileName?: string) => {
+    if (!base64Data || !fileName) {
+      alert("لا يوجد مستند مرفق لاستعراضه.");
+      return;
+    }
+
+    try {
+      let mimeType = "application/octet-stream";
+      let pureBase64 = base64Data;
+
+      if (base64Data.startsWith('data:')) {
+        const parts = base64Data.split(',');
+        mimeType = parts[0].match(/:(.*?);/)?.[1] || "application/octet-stream";
+        pureBase64 = parts[1];
+      } else {
+        // Fallback mime type based on file extension
+        const ext = fileName.split('.').pop()?.toLowerCase();
+        if (ext === 'pdf') mimeType = 'application/pdf';
+        else if (ext === 'png') mimeType = 'image/png';
+        else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+        else if (ext === 'webp') mimeType = 'image/webp';
+        else if (ext === 'gif') mimeType = 'image/gif';
+      }
+
+      // Decode Base64 safely
+      const byteCharacters = atob(pureBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: mimeType });
+      const blobUrl = URL.createObjectURL(blob);
+
+      setPreviewFile({
+        name: fileName,
+        base64: blobUrl,
+        fileName: fileName
+      });
+    } catch (err) {
+      console.error("Error generating file preview URL:", err);
+      // Fallback: use raw data URL if decoding fails
+      setPreviewFile({
+        name: fileName,
+        base64: base64Data,
+        fileName: fileName
+      });
+    }
+  };
+
   // Handle delete applicant
   const handleDeleteApplicant = async (id: string, name: string) => {
     const confirmDelete = window.confirm(`هل أنت متأكد من رغبتك في حذف طلب المتقدم "${name}" نهائياً من قاعدة البيانات؟`);
@@ -471,6 +540,207 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
     hrEvalForm.writingRating, hrEvalForm.languageRating, 
     hrEvalForm.personalityRating
   ]);
+
+  // Save Interview Schedule and auto-promote to 'interview' status
+  const handleSaveSchedule = async (applicant: Applicant, name: string, date: string, time: string, type: string) => {
+    try {
+      const res = await fetch(`/api/admin/applicants/${applicant.id}/review`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          status: 'interview', // Automatically set status to interview
+          interviewSchedule: {
+            date,
+            time,
+            type,
+            whatsappSent: true
+          }
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert("تم حفظ وتحديث موعد المقابلة وتحديث حالة الطلب إلى (مقابلة شخصية) بنجاح!");
+        setRefreshTrigger(prev => prev + 1);
+        setSchedulingApplicant(null);
+      } else {
+        alert(data.error || "فشل حفظ الموعد.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء الاتصال بالخادم لحفظ الموعد.");
+    }
+  };
+
+  // Generate hybrid WhatsApp link and open it in a new window
+  const handleSendWhatsApp = (applicant: Applicant, name: string, date: string, time: string, type: string) => {
+    // Generate the professional message
+    const formattedDate = new Date(date).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const formattedTime = time; // e.g., "14:30"
+    
+    const message = `السلام عليكم ورحمة الله وبركاته، أستاذ/أستاذة ${name} المحترم.
+
+نفيدكم من إدارة الموارد البشرية بشركة مصنع جدة للدهانات والمعاجين، بأنه تم استقبال تقديمكم الموقر عبر موقع جدارات للوظيفة التالية:
+📌 المسمى الوظيفي: مشرف صحة وسلامة مهنية
+رقم الإعلان الوظيفي: 20260706023116938
+تاريخ الإعلان: 21/01/1448
+
+ويسعدنا تحديد موعد المقابلة الشخصية معكم (عن بعد):
+📅 اليوم والتاريخ: ${formattedDate}
+⏰ الوقت المحدد: في تمام الساعة ${formattedTime}
+
+⚠️ نرجو التكرم بالتواجد قبل موعد المقابلة بـ 15 دقيقة للتأكد من استقرار الاتصال والشبكة.
+
+نسأل الله لكم التوفيق والنجاح.
+إدارة الموارد البشرية
+شركة مصنع جدة للدهانات والمعاجين`;
+
+    const encodedMessage = encodeURIComponent(message);
+    const cleanPhone = applicant.personalInfo.phone.replace(/[\s\-\+\(\)]/g, '');
+    let formattedPhone = cleanPhone;
+    if (formattedPhone.startsWith('0')) {
+      formattedPhone = '966' + formattedPhone.substring(1);
+    } else if (!formattedPhone.startsWith('966') && formattedPhone.length === 9) {
+      formattedPhone = '966' + formattedPhone;
+    }
+    
+    const waUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
+    window.open(waUrl, '_blank');
+  };
+
+  // Admin Upload Document on behalf of the applicant
+  const handleAdminUploadDocument = async () => {
+    if (!selectedApplicant) {
+      alert("يرجى اختيار متقدم أولاً.");
+      return;
+    }
+    if (!newDocName.trim()) {
+      alert("يرجى إدخال اسم أو مسمى للمستند المرفق.");
+      return;
+    }
+    if (!newDocFile) {
+      alert("يرجى اختيار ملف لرفعه.");
+      return;
+    }
+
+    if (newDocFile.size > 10 * 1024 * 1024) {
+      alert("حجم الملف كبير جداً. الحد الأقصى المسموح به هو 10 ميجابايت.");
+      return;
+    }
+
+    setIsUploadingDoc(true);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const base64 = event.target?.result as string;
+        if (!base64) {
+          alert("حدث خطأ أثناء معالجة ملف المستند.");
+          setIsUploadingDoc(false);
+          return;
+        }
+
+        const newDoc = {
+          id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11),
+          name: newDocName.trim(),
+          fileName: newDocFile.name,
+          base64: base64,
+          uploadedAt: new Date().toISOString()
+        };
+
+        const existingDocs = selectedApplicant.personalInfo.adminDocuments || [];
+        const updatedDocs = [...existingDocs, newDoc];
+
+        const res = await fetch(`/api/admin/applicants/${selectedApplicant.id}/review`, {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({
+            personalInfo: {
+              adminDocuments: updatedDocs
+            }
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          alert("تم رفع وحفظ المستند الإضافي بنجاح!");
+          // Update selectedApplicant locally
+          const updatedApplicant = {
+            ...selectedApplicant,
+            personalInfo: {
+              ...selectedApplicant.personalInfo,
+              adminDocuments: updatedDocs
+            }
+          };
+          setSelectedApplicant(updatedApplicant);
+          
+          // Reset fields
+          setNewDocName('');
+          setNewDocFile(null);
+          // Reset file input value
+          const fileInput = document.getElementById('admin-doc-file-input') as HTMLInputElement;
+          if (fileInput) fileInput.value = '';
+
+          setRefreshTrigger(prev => prev + 1);
+        } else {
+          alert(data.error || "فشل رفع المستند.");
+        }
+        setIsUploadingDoc(false);
+      };
+      reader.readAsDataURL(newDocFile);
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء الاتصال بالخادم لرفع المستند.");
+      setIsUploadingDoc(false);
+    }
+  };
+
+  // Delete Admin Uploaded Document
+  const handleDeleteAdminDocument = async (docId: string) => {
+    if (!selectedApplicant) return;
+    if (!confirm("هل أنت متأكد من حذف هذا المستند المرفق نهائياً؟")) return;
+
+    const existingDocs = selectedApplicant.personalInfo.adminDocuments || [];
+    const updatedDocs = existingDocs.filter(d => d.id !== docId);
+
+    try {
+      const res = await fetch(`/api/admin/applicants/${selectedApplicant.id}/review`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          personalInfo: {
+            adminDocuments: updatedDocs
+          }
+        })
+      });
+
+      if (res.ok) {
+        alert("تم حذف المستند بنجاح.");
+        const updatedApplicant = {
+          ...selectedApplicant,
+          personalInfo: {
+            ...selectedApplicant.personalInfo,
+            adminDocuments: updatedDocs
+          }
+        };
+        setSelectedApplicant(updatedApplicant);
+        setRefreshTrigger(prev => prev + 1);
+      } else {
+        alert("فشل حذف المستند.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء حذف المستند.");
+    }
+  };
 
   // Export to CSV
   const handleExportCSV = () => {
@@ -841,44 +1111,168 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
               </div>
 
               {/* Attachments Section */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4 print:hidden">
-                <h4 className="font-extrabold text-slate-900 border-b border-slate-100 pb-3 mb-2 flex items-center gap-1.5 text-sm">
-                  <Download className="text-orange-500 w-4 h-4" />
-                  تحميل الملفات والمرفقات الرسمية
-                </h4>
-                
-                <div className="space-y-3">
-                  {/* CV download */}
-                  {selectedApplicant.personalInfo.cvBase64 ? (
-                    <button
-                      onClick={() => handleDownloadAttachment(selectedApplicant.personalInfo.cvBase64, selectedApplicant.personalInfo.cvFileName)}
-                      className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 p-3.5 rounded-xl flex items-center justify-between text-right text-xs font-semibold transition-all group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-orange-500" />
-                        <span>تحميل السيرة الذاتية (PDF)</span>
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6 print:hidden">
+                <div>
+                  <h4 className="font-extrabold text-slate-900 border-b border-slate-100 pb-3 mb-3 flex items-center gap-1.5 text-sm">
+                    <Eye className="text-orange-500 w-4 h-4" />
+                    استعراض المستندات والمرفقات الرسمية للمرشح
+                  </h4>
+                  
+                  <div className="space-y-3">
+                    {/* CV Preview */}
+                    {selectedApplicant.personalInfo.cvBase64 ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handlePreviewAttachment(selectedApplicant.personalInfo.cvBase64, selectedApplicant.personalInfo.cvFileName)}
+                          className="flex-1 bg-orange-50 hover:bg-orange-100/80 text-orange-700 border border-orange-200/50 p-3 rounded-xl flex items-center justify-between text-right text-xs font-bold transition-all group"
+                          title="انقر لاستعراض السيرة الذاتية مباشرة"
+                        >
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-orange-600" />
+                            <span>استعراض السيرة الذاتية (PDF) 👁️</span>
+                          </div>
+                          <Eye className="w-4 h-4 text-orange-500 group-hover:scale-110 transition-transform" />
+                        </button>
+                        <button
+                          onClick={() => handleDownloadAttachment(selectedApplicant.personalInfo.cvBase64, selectedApplicant.personalInfo.cvFileName)}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-3 rounded-xl flex items-center justify-center transition-all border border-slate-200/40"
+                          title="تحميل الملف كنسخة احتياطية"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
                       </div>
-                      <Download className="w-4 h-4 text-slate-400 group-hover:text-orange-500 transition-colors" />
-                    </button>
-                  ) : (
-                    <div className="text-xs text-slate-400 italic text-center p-2 border border-dashed rounded-lg">لم يتم توفير سيرة ذاتية PDF</div>
-                  )}
+                    ) : (
+                      <div className="text-xs text-slate-400 italic text-center p-2 border border-dashed rounded-lg">لم يتم توفير سيرة ذاتية PDF من المرشح</div>
+                    )}
 
-                  {/* Certs download */}
-                  {selectedApplicant.personalInfo.certsBase64 ? (
-                    <button
-                      onClick={() => handleDownloadAttachment(selectedApplicant.personalInfo.certsBase64, selectedApplicant.personalInfo.certsFileName)}
-                      className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 p-3.5 rounded-xl flex items-center justify-between text-right text-xs font-semibold transition-all group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Award className="w-4 h-4 text-orange-500" />
-                        <span>تحميل الشهادات المهنية الملحقة</span>
+                    {/* Certs Preview */}
+                    {selectedApplicant.personalInfo.certsBase64 ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handlePreviewAttachment(selectedApplicant.personalInfo.certsBase64, selectedApplicant.personalInfo.certsFileName)}
+                          className="flex-1 bg-orange-50 hover:bg-orange-100/80 text-orange-700 border border-orange-200/50 p-3 rounded-xl flex items-center justify-between text-right text-xs font-bold transition-all group"
+                          title="انقر لاستعراض الشهادات مباشرة"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Award className="w-4 h-4 text-orange-600" />
+                            <span>استعراض الشهادات المهنية الملحقة 👁️</span>
+                          </div>
+                          <Eye className="w-4 h-4 text-orange-500 group-hover:scale-110 transition-transform" />
+                        </button>
+                        <button
+                          onClick={() => handleDownloadAttachment(selectedApplicant.personalInfo.certsBase64, selectedApplicant.personalInfo.certsFileName)}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-3 rounded-xl flex items-center justify-center transition-all border border-slate-200/40"
+                          title="تحميل الملف كنسخة احتياطية"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
                       </div>
-                      <Download className="w-4 h-4 text-slate-400 group-hover:text-orange-500 transition-colors" />
-                    </button>
+                    ) : (
+                      <div className="text-xs text-slate-400 italic text-center p-2 border border-dashed rounded-lg">لم يتم توفير شهادات ورقية من المرشح</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Administration Uploaded Documents */}
+                <div className="border-t border-slate-100 pt-4">
+                  <h4 className="font-extrabold text-slate-900 border-b border-slate-100 pb-3 mb-3 flex items-center gap-1.5 text-sm">
+                    <Shield className="text-orange-500 w-4 h-4" />
+                    المستندات والمسودات المرفقة من الإدارة ({selectedApplicant.personalInfo.adminDocuments?.length || 0})
+                  </h4>
+
+                  {(!selectedApplicant.personalInfo.adminDocuments || selectedApplicant.personalInfo.adminDocuments.length === 0) ? (
+                    <div className="text-xs text-slate-400 italic text-center p-4 border border-dashed border-slate-200 rounded-xl bg-slate-50/30">
+                      لا توجد مستندات إضافية مرفوعة من الإدارة لهذا المرشح حالياً.
+                    </div>
                   ) : (
-                    <div className="text-xs text-slate-400 italic text-center p-2 border border-dashed rounded-lg">لم يتم توفير شهادات ورقية ملحقة</div>
+                    <div className="space-y-2.5 max-h-[250px] overflow-y-auto pr-1">
+                      {selectedApplicant.personalInfo.adminDocuments.map((doc) => (
+                        <div key={doc.id} className="bg-slate-50 border border-slate-200/60 rounded-xl p-3 flex items-center justify-between gap-2">
+                          <div className="text-right min-w-0 flex-1">
+                            <p className="font-bold text-slate-800 text-xs truncate" title={doc.name}>{doc.name}</p>
+                            <p className="text-[10px] text-slate-400 font-mono truncate">{doc.fileName}</p>
+                          </div>
+                          
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handlePreviewAttachment(doc.base64, doc.fileName)}
+                              className="bg-orange-500/10 hover:bg-orange-500 hover:text-white text-orange-600 p-2 rounded-lg text-xs transition-all"
+                              title="استعراض المستند"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDownloadAttachment(doc.base64, doc.fileName)}
+                              className="bg-slate-200/50 hover:bg-slate-200 text-slate-700 p-2 rounded-lg text-xs transition-all"
+                              title="تحميل المستند"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteAdminDocument(doc.id)}
+                              className="bg-red-50 hover:bg-red-500 text-red-500 hover:text-white p-2 rounded-lg text-xs transition-all"
+                              title="حذف المستند"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
+                </div>
+
+                {/* Upload on behalf form */}
+                <div className="bg-slate-50/60 border border-slate-200 p-4 rounded-2xl space-y-3.5">
+                  <h5 className="font-extrabold text-slate-800 text-xs flex items-center gap-1">
+                    <Upload className="w-3.5 h-3.5 text-orange-500" />
+                    <span>إرفاق مستند جديد نيابةً عن المرشح:</span>
+                  </h5>
+
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-500 font-bold block">مسمى أو وصف المستند:</label>
+                      <input
+                        type="text"
+                        value={newDocName}
+                        onChange={(e) => setNewDocName(e.target.value)}
+                        placeholder="مثال: الفحص الطبي، الهوية الوطنية، عقد سابق"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs outline-none focus:border-orange-500 transition-colors font-medium"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-500 font-bold block">الملف (PDF, صور):</label>
+                      <input
+                        type="file"
+                        id="admin-doc-file-input"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) setNewDocFile(file);
+                        }}
+                        accept=".pdf,image/*"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-orange-500 file:text-white hover:file:bg-orange-600 cursor-pointer text-slate-500"
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleAdminUploadDocument}
+                      disabled={isUploadingDoc || !newDocName.trim() || !newDocFile}
+                      className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                    >
+                      {isUploadingDoc ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>جاري رفع وحفظ الملف...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>إرفاق وحفظ المستند بالنظام 💾</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1303,7 +1697,35 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
             </div>
           </div>
 
-          {/* Search, Filter, Export Panel Card */}
+          {/* Sub-Tab Bar Selection */}
+          <div className="flex border-b border-slate-200 gap-6 pb-0 mb-4 shrink-0" id="admin-sub-tabs">
+            <button
+              onClick={() => setActiveSubTab('applicants')}
+              className={`pb-4 text-xs sm:text-sm font-extrabold transition-all border-b-2 flex items-center gap-2 ${
+                activeSubTab === 'applicants'
+                  ? 'border-orange-500 text-orange-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>ملفات ومراجعة المتقدمين ({applicants.length})</span>
+            </button>
+            <button
+              onClick={() => setActiveSubTab('schedules')}
+              className={`pb-4 text-xs sm:text-sm font-extrabold transition-all border-b-2 flex items-center gap-2 ${
+                activeSubTab === 'schedules'
+                  ? 'border-orange-500 text-orange-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              <span>ترتيب مواعيد المقابلات عن بعد ({applicants.filter(a => a.interviewSchedule).length})</span>
+            </button>
+          </div>
+
+          {activeSubTab === 'applicants' && (
+            <>
+              {/* Search, Filter, Export Panel Card */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
             <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
               <h3 className="font-extrabold text-slate-900 flex items-center gap-2 text-base">
@@ -1321,7 +1743,7 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
             </div>
 
             {/* Grid of inputs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               
               {/* Search text */}
               <div className="relative">
@@ -1377,15 +1799,27 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                 <option value="confinedSpace">حاصل على Confined Space</option>
               </select>
 
+              {/* Manual HR Evaluation filter */}
+              <select
+                value={manualEvalFilter}
+                onChange={(e) => setManualEvalFilter(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs bg-white font-semibold"
+              >
+                <option value="all">كل المراجعات اليدوية</option>
+                <option value="evaluated">تم تقييمها يدوياً</option>
+                <option value="pending_evaluation">بانتظار التقييم اليدوي</option>
+              </select>
+
               {/* Sort selector */}
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs bg-white"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs bg-white font-semibold"
               >
                 <option value="date">ترتيب حسب: تاريخ التقديم</option>
                 <option value="experience">ترتيب حسب: سنوات الخبرة</option>
                 <option value="score">ترتيب حسب: التقييم الفني الذكي</option>
+                <option value="hr_score">ترتيب حسب: التقييم اليدوي</option>
               </select>
 
             </div>
@@ -1485,6 +1919,298 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
               </div>
             )}
           </div>
+            </>
+          )}
+
+          {activeSubTab === 'schedules' && (
+            <div className="space-y-8 animate-fade-in" id="schedules-view-tab">
+              {/* Scheduling Form and Info Box Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* Info and stats column */}
+                <div className="bg-slate-900 text-white p-6 rounded-3xl border border-slate-800 space-y-4 flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <h3 className="font-extrabold text-base flex items-center gap-2 text-orange-400 text-right">
+                      <Calendar className="w-5 h-5 text-orange-400" />
+                      <span>ترتيب المواعيد والمقابلات</span>
+                    </h3>
+                    <p className="text-slate-300 text-xs leading-relaxed text-right">
+                      تتيح لك هذه الصفحة المبتكرة ترتيب وتنظيم مواعيد المقابلات الشخصية للمرشحين وإرسال دعوات رسمية واحترافية عبر واتساب مباشرة بنقرة زر واحدة.
+                    </p>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-800 space-y-1 text-xs text-right">
+                      <p className="text-slate-400 font-bold">💡 آلية الجدولة السهلة:</p>
+                      <ul className="list-disc list-inside space-y-1.5 text-slate-300 pr-2">
+                        <li>اختر المتقدم من القائمة المنسدلة.</li>
+                        <li>حدد اليوم، التاريخ، والوقت المناسب للمقابلة.</li>
+                        <li>اضغط "حفظ الموعد" لاعتماده وحفظه بالنظام.</li>
+                        <li>اضغط "إرسال الدعوة عبر واتساب" للتواصل التلقائي.</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Interview statistics */}
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-800/80">
+                    <div className="bg-slate-800/40 p-3 rounded-2xl text-right">
+                      <span className="text-slate-400 text-[10px] font-bold block mb-1">المقابلات المرتبة</span>
+                      <span className="text-xl font-black text-emerald-400 font-mono">
+                        {applicants.filter(a => a.interviewSchedule).length}
+                      </span>
+                    </div>
+                    <div className="bg-slate-800/40 p-3 rounded-2xl text-right">
+                      <span className="text-slate-400 text-[10px] font-bold block mb-1">بانتظار الترتيب</span>
+                      <span className="text-xl font-black text-orange-400 font-mono">
+                        {applicants.filter(a => !a.interviewSchedule && a.status === 'interview').length}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scheduling Engine Form */}
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 space-y-4">
+                  <h3 className="font-extrabold text-slate-900 flex items-center gap-2 text-base text-right">
+                    <Edit3 className="text-orange-500 w-5 h-5" />
+                    <span>تحديد موعد جديد أو تعديل موعد قائم</span>
+                  </h3>
+
+                  <div className="space-y-4">
+                    {/* Dropdown to pick applicant */}
+                    <div className="space-y-1 text-right">
+                      <label className="text-slate-700 text-xs font-bold block">1. اختر المتقدم لترتيب موعده:</label>
+                      <select
+                        value={schedulingApplicant?.id || ''}
+                        onChange={(e) => {
+                          const app = applicants.find(a => a.id === e.target.value);
+                          if (app) {
+                            setSchedulingApplicant(app);
+                            setScheduleName(app.personalInfo.fullName);
+                            setScheduleDate(app.interviewSchedule?.date || '');
+                            setScheduleTime(app.interviewSchedule?.time || '');
+                            setScheduleType(app.interviewSchedule?.type || 'remote');
+                          } else {
+                            setSchedulingApplicant(null);
+                            setScheduleName('');
+                            setScheduleDate('');
+                            setScheduleTime('');
+                            setScheduleType('remote');
+                          }
+                        }}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs bg-white font-semibold"
+                      >
+                        <option value="">-- اضغط هنا لاختيار المتقدم --</option>
+                        {applicants.map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.personalInfo.fullName} (رقم الطلب: {a.id} {a.interviewSchedule ? ' - مجدول مسبقاً 🗓️' : ''})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {schedulingApplicant && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                        {/* Name Input */}
+                        <div className="space-y-1 text-right">
+                          <label className="text-slate-700 text-xs font-bold block">اسم المتقدم للمقابلة:</label>
+                          <input
+                            type="text"
+                            value={scheduleName}
+                            onChange={(e) => setScheduleName(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
+                            placeholder="الاسم الكامل"
+                          />
+                        </div>
+
+                        {/* Date Input */}
+                        <div className="space-y-1 text-right">
+                          <label className="text-slate-700 text-xs font-bold block">تاريخ المقابلة:</label>
+                          <input
+                            type="date"
+                            value={scheduleDate}
+                            onChange={(e) => setScheduleDate(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
+                          />
+                        </div>
+
+                        {/* Time Input */}
+                        <div className="space-y-1 text-right">
+                          <label className="text-slate-700 text-xs font-bold block">وقت المقابلة:</label>
+                          <input
+                            type="time"
+                            value={scheduleTime}
+                            onChange={(e) => setScheduleTime(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {schedulingApplicant && (
+                      <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSchedulingApplicant(null);
+                            setScheduleName('');
+                            setScheduleDate('');
+                            setScheduleTime('');
+                          }}
+                          className="w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 text-xs rounded-xl transition-all"
+                        >
+                          إلغاء التحديد
+                        </button>
+                        
+                        <button
+                          type="button"
+                          onClick={() => handleSaveSchedule(schedulingApplicant, scheduleName, scheduleDate, scheduleTime, scheduleType)}
+                          disabled={!scheduleDate || !scheduleTime || !scheduleName}
+                          className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-5 py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md"
+                        >
+                          <Save className="w-4 h-4" />
+                          <span>حفظ الموعد بالنظام 💾</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSendWhatsApp(schedulingApplicant, scheduleName, scheduleDate, scheduleTime, scheduleType)}
+                          disabled={!scheduleDate || !scheduleTime || !scheduleName}
+                          className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-5 py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-600/10"
+                        >
+                          💬 إرسال رابط واتساب الهجين
+                        </button>
+                      </div>
+                    )}
+
+                    {!schedulingApplicant && (
+                      <div className="p-8 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center gap-2">
+                        <Calendar className="w-8 h-8 text-slate-300" />
+                        <span>يرجى اختيار أحد المتقدمين من القائمة المنسدلة أعلاه لبدء جدولة موعد المقابلة وإصدار دعوة الواتساب.</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Scheduled List Table */}
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="text-right">
+                    <h3 className="font-extrabold text-slate-900 text-base mb-1">جدول المقابلات المرتبة والمواعيد القائمة</h3>
+                    <p className="text-slate-500 text-xs font-semibold">قائمة بجميع المرشحين الذين تم جدولة مواعيد مقابلاتهم الشخصية عن بعد، مرتبة من الأقرب إلى الأبعد.</p>
+                  </div>
+                </div>
+
+                {applicants.filter(a => a.interviewSchedule).length === 0 ? (
+                  <div className="p-20 text-center flex flex-col items-center justify-center gap-3 text-slate-400">
+                    <AlertCircle className="w-12 h-12 text-slate-300" />
+                    <span className="text-sm font-bold">لم يتم ترتيب أو جدولة أي مقابلة شخصية حتى الآن.</span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs md:text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-slate-900 text-white font-bold border-b border-slate-800">
+                          <th className="p-4">اسم المتقدم</th>
+                          <th className="p-4">رقم الطلب</th>
+                          <th className="p-4">تاريخ المقابلة</th>
+                          <th className="p-4 text-center">الوقت المحدد</th>
+                          <th className="p-4 text-center">نوع المقابلة</th>
+                          <th className="p-4">الجوال</th>
+                          <th className="p-4 text-center">رابط واتساب الهجين</th>
+                          <th className="p-4 text-center">الإجراءات</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-medium">
+                        {applicants
+                          .filter(a => a.interviewSchedule)
+                          .sort((a, b) => {
+                            const dateA = new Date(`${a.interviewSchedule!.date}T${a.interviewSchedule!.time || '00:00'}`);
+                            const dateB = new Date(`${b.interviewSchedule!.date}T${b.interviewSchedule!.time || '00:00'}`);
+                            return dateA.getTime() - dateB.getTime(); // Nearest/upcoming first
+                          })
+                          .map((a) => {
+                            const sched = a.interviewSchedule!;
+                            const arabDate = new Date(sched.date).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                            return (
+                              <tr key={a.id} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="p-4 font-bold text-slate-950">{a.personalInfo.fullName}</td>
+                                <td className="p-4 font-bold font-mono text-slate-500">{a.id}</td>
+                                <td className="p-4 text-slate-700 font-bold">{arabDate}</td>
+                                <td className="p-4 text-center text-slate-900 font-black font-mono bg-orange-500/5">{sched.time}</td>
+                                <td className="p-4 text-center">
+                                  <span className="bg-blue-50 text-blue-700 text-xs px-2.5 py-1 rounded-full font-bold">
+                                    مقابلة عن بعد (15 دقيقة قبل)
+                                  </span>
+                                </td>
+                                <td className="p-4 font-mono ltr text-right text-slate-600">{a.personalInfo.phone}</td>
+                                <td className="p-4 text-center">
+                                  <button
+                                    onClick={() => handleSendWhatsApp(a, a.personalInfo.fullName, sched.date, sched.time, sched.type)}
+                                    className="bg-emerald-50 hover:bg-emerald-600 text-emerald-600 hover:text-white font-bold px-3 py-1.5 rounded-lg text-[10px] inline-flex items-center gap-1.5 transition-all shadow-sm"
+                                    title="افتح محادثة واتساب مع دعوة المقابلة الجاهزة"
+                                  >
+                                    <span>💬 فتح واتساب</span>
+                                  </button>
+                                </td>
+                                <td className="p-4 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={() => {
+                                        setSchedulingApplicant(a);
+                                        setScheduleName(a.personalInfo.fullName);
+                                        setScheduleDate(sched.date);
+                                        setScheduleTime(sched.time);
+                                        setScheduleType(sched.type || 'remote');
+                                        // Scroll smoothly to form
+                                        window.scrollTo({ top: 400, behavior: 'smooth' });
+                                      }}
+                                      className="bg-orange-50 hover:bg-orange-500 text-orange-600 hover:text-white p-2 rounded-lg transition-all"
+                                      title="تعديل تفاصيل الموعد"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (confirm("هل أنت متأكد من إلغاء وحذف موعد المقابلة لهذا المتقدم من الجدول؟")) {
+                                          try {
+                                            const res = await fetch(`/api/admin/applicants/${a.id}/review`, {
+                                              method: 'PATCH',
+                                              headers: {
+                                                'Content-Type': 'application/json',
+                                                'Authorization': `Bearer ${adminToken}`
+                                              },
+                                              body: JSON.stringify({
+                                                interviewSchedule: null
+                                              })
+                                            });
+                                            if (res.ok) {
+                                              alert("تم إلغاء الموعد بنجاح.");
+                                              setRefreshTrigger(prev => prev + 1);
+                                              if (schedulingApplicant?.id === a.id) {
+                                                setSchedulingApplicant(null);
+                                              }
+                                            }
+                                          } catch (err) {
+                                            console.error(err);
+                                          }
+                                        }
+                                      }}
+                                      className="bg-red-50 hover:bg-red-500 text-red-500 hover:text-white p-2 rounded-lg transition-all"
+                                      title="إلغاء الموعد"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
         </main>
       )}
@@ -1716,6 +2442,98 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                 className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs py-2 px-5 rounded-xl transition-all"
               >
                 إغلاق النافذة
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* File Preview Overlay Modal */}
+      {previewFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md" id="file-preview-overlay-modal">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-5xl w-full h-[85vh] flex flex-col overflow-hidden">
+            
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white p-5 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => handleDownloadAttachment(previewFile.base64, previewFile.fileName)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                  title="تحميل الملف"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>تحميل الملف</span>
+                </button>
+              </div>
+              
+              <div className="text-right flex items-center gap-2">
+                <div className="text-right">
+                  <h3 className="font-extrabold text-sm truncate max-w-[300px] md:max-w-md">{previewFile.name}</h3>
+                  <p className="text-slate-400 text-[10px] font-medium font-mono truncate max-w-[300px]">{previewFile.fileName}</p>
+                </div>
+                <div className="bg-orange-500 p-2 rounded-xl text-white">
+                  <Eye className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body (Preview Stage) */}
+            <div className="flex-1 bg-slate-100 p-4 flex items-center justify-center overflow-auto relative">
+              {(() => {
+                const lowerFileName = previewFile.fileName.toLowerCase();
+                const isPdf = lowerFileName.endsWith('.pdf') || previewFile.base64.startsWith('data:application/pdf');
+                const isImage = lowerFileName.endsWith('.png') || 
+                                lowerFileName.endsWith('.jpg') || 
+                                lowerFileName.endsWith('.jpeg') || 
+                                lowerFileName.endsWith('.webp') || 
+                                lowerFileName.endsWith('.gif') || 
+                                previewFile.base64.startsWith('data:image/');
+
+                if (isPdf) {
+                  return (
+                    <iframe
+                      src={previewFile.base64}
+                      className="w-full h-full rounded-2xl border-0 shadow-sm bg-white"
+                      title={previewFile.name}
+                    />
+                  );
+                } else if (isImage) {
+                  return (
+                    <img
+                      src={previewFile.base64}
+                      alt={previewFile.name}
+                      referrerPolicy="no-referrer"
+                      className="max-w-full max-h-full object-contain rounded-xl shadow-lg border border-slate-200"
+                    />
+                  );
+                } else {
+                  return (
+                    <div className="text-center p-8 bg-white border rounded-2xl shadow-sm max-w-sm space-y-4">
+                      <p className="text-xs font-bold text-slate-700">
+                        معاينة هذا المرفق مباشرة في المتصفح غير مدعومة حالياً.
+                      </p>
+                      <button
+                        onClick={() => handleDownloadAttachment(previewFile.base64, previewFile.fileName)}
+                        className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-2 transition-all"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>تحميل الملف للاستعراض 📥</span>
+                      </button>
+                    </div>
+                  );
+                }
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex justify-between items-center shrink-0">
+              <span className="text-[10px] text-slate-400 font-medium">بوابة المعاينة المباشرة والفرز الذكي لمصنع دهانات جدة</span>
+              <button 
+                onClick={() => setPreviewFile(null)}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 px-6 rounded-xl transition-all shadow-sm"
+              >
+                إغلاق المعاينة
               </button>
             </div>
 
