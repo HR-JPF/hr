@@ -38,6 +38,10 @@ function hashPassword(password: string): string {
 
 // Helper functions to map between Applicant models and Supabase schema
 function mapApplicantToSupabase(applicant: Applicant) {
+  // Only include hrEvaluation if it has real human review data (finalScore)
+  const hasRealEval = applicant.hrEvaluation && (applicant.hrEvaluation.finalScore !== undefined || (applicant.hrEvaluation as any).reviewedAt !== undefined);
+  const cleanHrEval = hasRealEval ? applicant.hrEvaluation : null;
+
   return {
     id: applicant.id,
     status: applicant.status,
@@ -47,14 +51,17 @@ function mapApplicantToSupabase(applicant: Applicant) {
     certificates: applicant.certificates,
     exam_answers: applicant.examAnswers,
     ai_evaluation: applicant.aiEvaluation || null,
-    hr_evaluation: applicant.hrEvaluation ? {
-      ...applicant.hrEvaluation,
-      interviewSchedule: applicant.interviewSchedule || (applicant.hrEvaluation as any).interviewSchedule || null
+    hr_evaluation: cleanHrEval ? {
+      ...cleanHrEval,
+      interviewSchedule: applicant.interviewSchedule || null
     } : (applicant.interviewSchedule ? { interviewSchedule: applicant.interviewSchedule } : null)
   };
 }
 
 function mapSupabaseToApplicant(row: any): Applicant {
+  // Only expose hrEvaluation if it has real evaluation fields
+  const hasRealEval = row.hr_evaluation && (row.hr_evaluation.finalScore !== undefined || row.hr_evaluation.reviewedAt !== undefined);
+  
   return {
     id: row.id,
     status: row.status,
@@ -64,7 +71,7 @@ function mapSupabaseToApplicant(row: any): Applicant {
     certificates: row.certificates,
     examAnswers: row.exam_answers,
     aiEvaluation: row.ai_evaluation || undefined,
-    hrEvaluation: row.hr_evaluation || undefined,
+    hrEvaluation: hasRealEval ? row.hr_evaluation : undefined,
     interviewSchedule: row.hr_evaluation?.interviewSchedule || undefined
   };
 }
@@ -1515,6 +1522,24 @@ app.patch("/api/admin/applicants/:id/review", requireAdmin, async (req, res) => 
 
   if (interviewSchedule !== undefined) {
     applicants[index].interviewSchedule = interviewSchedule;
+    if (interviewSchedule === null) {
+      if (applicants[index].hrEvaluation) {
+        // Delete interviewSchedule property entirely from hrEvaluation
+        delete (applicants[index].hrEvaluation as any).interviewSchedule;
+        
+        // If hrEvaluation has no real rating data, delete hrEvaluation entirely
+        const keys = Object.keys(applicants[index].hrEvaluation || {});
+        const hasRealData = keys.some(k => k !== 'interviewSchedule' && k !== 'finalScore' && k !== 'reviewedAt' && k !== 'reviewedBy');
+        if (!hasRealData) {
+          applicants[index].hrEvaluation = undefined;
+        }
+      }
+    } else {
+      if (!applicants[index].hrEvaluation) {
+        applicants[index].hrEvaluation = {} as any;
+      }
+      (applicants[index].hrEvaluation as any).interviewSchedule = interviewSchedule;
+    }
   }
 
   if (personalInfo) {
@@ -1539,11 +1564,18 @@ app.patch("/api/admin/applicants/:id/review", requireAdmin, async (req, res) => 
     // Scale ratingsSum (max 70) to score out of 100
     const finalScore = Math.round((ratingsSum / 70) * 100);
     
+    // Preserve existing interview schedule
+    const existingSchedule = applicants[index].interviewSchedule || (applicants[index].hrEvaluation as any)?.interviewSchedule;
+
     applicants[index].hrEvaluation = {
       ...evalData,
       finalScore,
       reviewedAt: new Date().toISOString()
     };
+
+    if (existingSchedule) {
+      (applicants[index].hrEvaluation as any).interviewSchedule = existingSchedule;
+    }
   }
   
   cachedApplicants = applicants;

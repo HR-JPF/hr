@@ -101,6 +101,9 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
     logs: string[];
   } | null>(null);
 
+  const [selectedSchedules, setSelectedSchedules] = useState<string[]>([]);
+  const [isBulkCancelling, setIsBulkCancelling] = useState(false);
+
   const [defaultMeetingLink, setDefaultMeetingLink] = useState(() => {
     try {
       const saved = localStorage.getItem('defaultMeetingLink');
@@ -2928,6 +2931,77 @@ https://wa.me/966537375580
                   </div>
                 </div>
 
+                {/* Bulk Actions Banner */}
+                {selectedSchedules.length > 0 && (
+                  <div className="bg-gradient-to-r from-orange-500/10 to-amber-500/10 border border-orange-200/60 rounded-2xl p-4 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in text-right animate-pulse">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-orange-500 text-white p-2.5 rounded-2xl shadow-md shadow-orange-500/10">
+                        <Calendar className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-slate-900 text-sm">تم تحديد ({selectedSchedules.length}) من مواعيد المقابلات</h4>
+                        <p className="text-slate-500 text-[10px] font-bold">بإمكانك إلغاء هذه المواعيد دفعة واحدة لإعادتها فوراً إلى قائمة الانتظار والجدولة التلقائية.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (confirm(`هل أنت متأكد من إلغاء وحذف مواعيد المقابلات لعدد (${selectedSchedules.length}) من المتقدمين المحددين وإعادتهم للجدولة؟`)) {
+                            setIsBulkCancelling(true);
+                            try {
+                              let successCount = 0;
+                              for (const id of selectedSchedules) {
+                                const res = await fetch(`/api/admin/applicants/${id}/review`, {
+                                  method: 'PATCH',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${adminToken}`
+                                  },
+                                  body: JSON.stringify({
+                                    status: 'reviewing',
+                                    interviewSchedule: null
+                                  })
+                                });
+                                if (res.ok) successCount++;
+                              }
+                              alert(`تم إلغاء عدد (${successCount}) من المواعيد المحددة بنجاح وإعادتها لقائمة الجدولة.`);
+                              setSelectedSchedules([]);
+                              setRefreshTrigger(prev => prev + 1);
+                            } catch (err) {
+                              console.error(err);
+                              alert("حدث خطأ أثناء إلغاء المواعيد.");
+                            } finally {
+                              setIsBulkCancelling(false);
+                            }
+                          }
+                        }}
+                        disabled={isBulkCancelling}
+                        className="bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-black px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-red-600/15 transition-all cursor-pointer w-full sm:w-auto justify-center"
+                      >
+                        {isBulkCancelling ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            <span>جاري إلغاء المواعيد...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="w-4 h-4 text-white" />
+                            <span>إلغاء المواعيد المحددة وإعادة جدولة 🔄</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSchedules([])}
+                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        إلغاء التحديد
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {applicants.filter(a => a.interviewSchedule).length === 0 ? (
                   <div className="p-20 text-center flex flex-col items-center justify-center gap-3 text-slate-400">
                     <AlertCircle className="w-12 h-12 text-slate-300" />
@@ -2938,6 +3012,23 @@ https://wa.me/966537375580
                     <table className="w-full text-right text-xs md:text-sm border-collapse">
                       <thead>
                         <tr className="bg-slate-900 text-white font-bold border-b border-slate-800">
+                          <th className="p-4 text-center w-12">
+                            <input
+                              type="checkbox"
+                              checked={
+                                applicants.filter(a => a.interviewSchedule).length > 0 &&
+                                applicants.filter(a => a.interviewSchedule).every(a => selectedSchedules.includes(a.id))
+                              }
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedSchedules(applicants.filter(a => a.interviewSchedule).map(a => a.id));
+                                } else {
+                                  setSelectedSchedules([]);
+                                }
+                              }}
+                              className="w-4 h-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500 cursor-pointer"
+                            />
+                          </th>
                           <th className="p-4">اسم المتقدم</th>
                           <th className="p-4">رقم الطلب</th>
                           <th className="p-4">تاريخ المقابلة</th>
@@ -2960,7 +3051,21 @@ https://wa.me/966537375580
                             const sched = a.interviewSchedule!;
                             const arabDate = new Date(sched.date).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
                             return (
-                              <tr key={a.id} className="hover:bg-slate-50/80 transition-colors">
+                              <tr key={a.id} className={`hover:bg-slate-50/80 transition-colors ${selectedSchedules.includes(a.id) ? 'bg-orange-50/30' : ''}`}>
+                                <td className="p-4 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedSchedules.includes(a.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedSchedules(prev => [...prev, a.id]);
+                                      } else {
+                                        setSelectedSchedules(prev => prev.filter(id => id !== a.id));
+                                      }
+                                    }}
+                                    className="w-4 h-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500 cursor-pointer"
+                                  />
+                                </td>
                                 <td className="p-4 font-bold text-slate-950">{a.personalInfo.fullName}</td>
                                 <td className="p-4 font-bold font-mono text-slate-500">{a.id}</td>
                                 <td className="p-4 text-slate-700 font-bold">{arabDate}</td>
@@ -2975,11 +3080,11 @@ https://wa.me/966537375580
                                         href={sched.meetingLink}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="text-emerald-600 hover:text-emerald-700 hover:underline text-[10px] font-bold flex items-center gap-0.5 font-mono"
+                                        className={`text-emerald-600 hover:text-emerald-700 hover:underline text-[10px] font-bold flex items-center gap-0.5 font-mono ${sched.meetingLink.includes('abc-') ? 'text-amber-600 hover:text-amber-700' : ''}`}
                                         title={sched.meetingLink}
                                       >
-                                        <Video className="w-3 h-3 text-emerald-500 inline" />
-                                        <span>رابط القاعة 📹</span>
+                                        <Video className={`w-3 h-3 inline ${sched.meetingLink.includes('abc-') ? 'text-amber-500 animate-pulse' : 'text-emerald-500'}`} />
+                                        <span>{sched.meetingLink.includes('abc-') ? 'رابط مؤقت (abc-)' : 'رابط القاعة 📹'}</span>
                                       </a>
                                     ) : (
                                       <span className="text-slate-400 text-[10px]">لا يوجد رابط</span>
@@ -3005,6 +3110,7 @@ https://wa.me/966537375580
                                         setScheduleDate(sched.date);
                                         setScheduleTime(sched.time);
                                         setScheduleType(sched.type || 'remote');
+                                        setScheduleMeetingLink(sched.meetingLink || defaultMeetingLink);
                                         // Scroll smoothly to form
                                         window.scrollTo({ top: 400, behavior: 'smooth' });
                                       }}
@@ -3024,6 +3130,7 @@ https://wa.me/966537375580
                                                 'Authorization': `Bearer ${adminToken}`
                                               },
                                               body: JSON.stringify({
+                                                status: 'reviewing',
                                                 interviewSchedule: null
                                               })
                                             });
