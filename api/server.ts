@@ -46,7 +46,10 @@ function mapApplicantToSupabase(applicant: Applicant) {
     certificates: applicant.certificates,
     exam_answers: applicant.examAnswers,
     ai_evaluation: applicant.aiEvaluation || null,
-    hr_evaluation: applicant.hrEvaluation || null
+    hr_evaluation: applicant.hrEvaluation ? {
+      ...applicant.hrEvaluation,
+      interviewSchedule: applicant.interviewSchedule || (applicant.hrEvaluation as any).interviewSchedule || null
+    } : (applicant.interviewSchedule ? { interviewSchedule: applicant.interviewSchedule } : null)
   };
 }
 
@@ -60,7 +63,8 @@ function mapSupabaseToApplicant(row: any): Applicant {
     certificates: row.certificates,
     examAnswers: row.exam_answers,
     aiEvaluation: row.ai_evaluation || undefined,
-    hrEvaluation: row.hr_evaluation || undefined
+    hrEvaluation: row.hr_evaluation || undefined,
+    interviewSchedule: row.hr_evaluation?.interviewSchedule || undefined
   };
 }
 
@@ -1412,7 +1416,7 @@ app.get("/api/admin/stats", requireAdmin, (req, res) => {
 app.get("/api/admin/applicants", requireAdmin, (req, res) => {
   let applicants = readDB();
   
-  const { search, status, experience, hasCert, sortBy, sortOrder } = req.query;
+  const { search, status, experience, hasCert, sortBy, sortOrder, manualEval } = req.query;
   
   // Apply search
   if (search) {
@@ -1446,6 +1450,15 @@ app.get("/api/admin/applicants", requireAdmin, (req, res) => {
     const certKey = String(hasCert) as keyof typeof applicants[0]["certificates"];
     applicants = applicants.filter(a => a.certificates[certKey] === true);
   }
+
+  // Filter by manual evaluation status
+  if (manualEval && manualEval !== "all") {
+    if (manualEval === "evaluated") {
+      applicants = applicants.filter(a => a.hrEvaluation !== null && a.hrEvaluation !== undefined);
+    } else if (manualEval === "pending_evaluation") {
+      applicants = applicants.filter(a => a.hrEvaluation === null || a.hrEvaluation === undefined);
+    }
+  }
   
   // Sort applicants
   const order = sortOrder === "asc" ? 1 : -1;
@@ -1455,6 +1468,12 @@ app.get("/api/admin/applicants", requireAdmin, (req, res) => {
     applicants.sort((a, b) => {
       const scoreA = a.aiEvaluation?.score || 0;
       const scoreB = b.aiEvaluation?.score || 0;
+      return (scoreA - scoreB) * order;
+    });
+  } else if (sortBy === "hr_score") {
+    applicants.sort((a, b) => {
+      const scoreA = a.hrEvaluation?.finalScore || 0;
+      const scoreB = b.hrEvaluation?.finalScore || 0;
       return (scoreA - scoreB) * order;
     });
   } else if (sortBy === "date") {
@@ -1481,7 +1500,7 @@ app.get("/api/admin/applicants/:id", requireAdmin, (req, res) => {
 
 // 6. Update Applicant Status or Human Resource Review
 app.patch("/api/admin/applicants/:id/review", requireAdmin, async (req, res) => {
-  const { status, hrEvaluation } = req.body;
+  const { status, hrEvaluation, interviewSchedule, personalInfo } = req.body;
   const applicants = readDB();
   const index = applicants.findIndex(a => a.id === req.params.id);
   
@@ -1491,6 +1510,17 @@ app.patch("/api/admin/applicants/:id/review", requireAdmin, async (req, res) => 
   
   if (status) {
     applicants[index].status = status;
+  }
+
+  if (interviewSchedule !== undefined) {
+    applicants[index].interviewSchedule = interviewSchedule;
+  }
+
+  if (personalInfo) {
+    applicants[index].personalInfo = {
+      ...applicants[index].personalInfo,
+      ...personalInfo
+    };
   }
   
   if (hrEvaluation) {
