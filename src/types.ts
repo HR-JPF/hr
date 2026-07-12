@@ -1,3 +1,4 @@
+// GitHub Sync: Minor update to trigger re-push
 export type ApplicationStatus = 'pending' | 'reviewing' | 'accepted' | 'rejected' | 'interview' | 'waitlist';
 
 export interface PersonalInfo {

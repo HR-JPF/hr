@@ -1,4 +1,5 @@
 import React from 'react';
+// GitHub Sync: Minor update to trigger re-push
 import { Shield, FileText, Calendar, MapPin, Award, CheckCircle, Clock, Star, Flame, Droplet, Zap, MessageCircle } from 'lucide-react';
 
 interface HomeProps {

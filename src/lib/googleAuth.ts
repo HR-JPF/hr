@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app';
+// GitHub Sync: Minor update to trigger re-push
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
