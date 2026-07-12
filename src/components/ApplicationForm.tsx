@@ -648,13 +648,13 @@ export default function ApplicationForm({ onCancel, onSubmitSuccess }: Applicati
 
               {/* Current Salary */}
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">الراتب الأساسي الحالي (إجمالي تقريبي)</label>
+                <label className="block text-sm font-bold text-slate-700 mb-2">الراتب الاجمالي الحالي</label>
                 <input
                   type="text"
                   value={personalInfo.currentSalary}
                   onChange={(e) => setPersonalInfo(prev => ({ ...prev, currentSalary: e.target.value }))}
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all"
-                  placeholder="مثال: 9,500 ريال"
+                  placeholder="إذا لا توجد وظيفة ضع 0"
                 />
               </div>
 
