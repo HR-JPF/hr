@@ -119,6 +119,7 @@ export interface InterviewSchedule {
   time: string; // HH:MM
   type: string; // 'remote' or 'in_person'
   whatsappSent?: boolean;
+  meetingLink?: string;
 }
 
 export interface Applicant {

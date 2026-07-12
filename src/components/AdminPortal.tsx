@@ -4,10 +4,12 @@ import {
   Search, Filter, Eye, EyeOff, Edit3, Download, Printer, Trash2, ArrowLeft,
   ChevronDown, AlertCircle, Award, Star, ThumbsUp, Save, BarChart2,
   ListFilter, FileSpreadsheet, FileDown, Loader2, Briefcase, FileQuestion,
-  Upload, ShieldCheck, Copy, Check, Share2, MessageSquare
+  Upload, ShieldCheck, Copy, Check, Share2, MessageSquare, Settings, Video
 } from 'lucide-react';
 import { Applicant, DashboardStats, HrEvaluation, ApplicationStatus } from '../types';
 import CompanyLogo from './CompanyLogo';
+import { googleSignIn, initAuth, createGoogleMeetSpace, logout as googleLogout } from '../lib/googleAuth';
+import { User } from 'firebase/auth';
 
 interface AdminPortalProps {
   onGoHome: () => void;
@@ -58,22 +60,207 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
   const [manualEvalFilter, setManualEvalFilter] = useState<string>('all');
 
   // Hybrid WhatsApp Interview Scheduling states
-  const [activeSubTab, setActiveSubTab] = useState<'applicants' | 'schedules' | 'announcements'>('applicants');
+  const [activeSubTab, setActiveSubTab] = useState<'applicants' | 'schedules' | 'announcements' | 'templates'>('applicants');
   const [schedulingApplicant, setSchedulingApplicant] = useState<Applicant | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
   const [scheduleName, setScheduleName] = useState('');
   const [scheduleType, setScheduleType] = useState('remote');
+  const [scheduleMeetingLink, setScheduleMeetingLink] = useState('');
+
+  // Google Meet and Automatic Scheduling states
+  const [googleUser, setGoogleUser] = useState<User | null>(null);
+  const [googleToken, setGoogleToken] = useState<string | null>(null);
+  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
+  
+  const [autoFromDate, setAutoFromDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [autoToDate, setAutoToDate] = useState(() => {
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    return nextWeek.toISOString().split('T')[0];
+  });
+  const [autoStartTime, setAutoStartTime] = useState('08:00');
+  const [autoEndTime, setAutoEndTime] = useState('16:00');
+  const [autoDuration, setAutoDuration] = useState(25);
+  const [autoBreak, setAutoBreak] = useState(5);
+  const [isSchedulingAuto, setIsSchedulingAuto] = useState(false);
+  const [autoScheduleResults, setAutoScheduleResults] = useState<{
+    successCount: number;
+    failedCount: number;
+    details: string[];
+  } | null>(null);
+
+  const [schedulingProgress, setSchedulingProgress] = useState<{
+    total: number;
+    current: number;
+    currentName: string;
+    logs: string[];
+  } | null>(null);
+
+  const [defaultMeetingLink, setDefaultMeetingLink] = useState(() => {
+    try {
+      const saved = localStorage.getItem('defaultMeetingLink');
+      if (saved) return saved;
+    } catch {}
+    return 'https://meet.google.com/abc-defg-hij';
+  });
 
   // WhatsApp announcement customization states
   const [announcementAppUrl, setAnnouncementAppUrl] = useState(() => {
     try {
+      const saved = localStorage.getItem('announcementAppUrl');
+      if (saved) return saved;
       return window.location.origin;
     } catch {
       return 'https://jeddahpaints-careers.com';
     }
   });
   const [announcementCopied, setAnnouncementCopied] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  
+  const [announcementTitle, setAnnouncementTitle] = useState(() => {
+    try {
+      return localStorage.getItem('announcementTitle') || 'أخصائي صحة وسلامة وبيئة (HSE)';
+    } catch {
+      return 'أخصائي صحة وسلامة وبيئة (HSE)';
+    }
+  });
+  
+  const [announcementId, setAnnouncementId] = useState(() => {
+    try {
+      return localStorage.getItem('announcementId') || '20260706023116938';
+    } catch {
+      return '20260706023116938';
+    }
+  });
+  
+  const [announcementDate, setAnnouncementDate] = useState(() => {
+    try {
+      return localStorage.getItem('announcementDate') || '21/01/1448 هـ';
+    } catch {
+      return '21/01/1448 هـ';
+    }
+  });
+  
+  const [announcementSalary, setAnnouncementSalary] = useState(() => {
+    try {
+      return localStorage.getItem('announcementSalary') || '4,500 ريال إلى 6,000 ريال';
+    } catch {
+      return '4,500 ريال إلى 6,000 ريال';
+    }
+  });
+  
+  const [announcementHours, setAnnouncementHours] = useState(() => {
+    try {
+      return localStorage.getItem('announcementHours') || '9 ساعات يومياً (6 أيام)';
+    } catch {
+      return '9 ساعات يومياً (6 أيام)';
+    }
+  });
+  
+  const [announcementLocation, setAnnouncementLocation] = useState(() => {
+    try {
+      return localStorage.getItem('announcementLocation') || 'حي الرحاب، جدة';
+    } catch {
+      return 'حي الرحاب، جدة';
+    }
+  });
+
+  const compileAnnouncementText = () => {
+    let text = announcementTemplate;
+    text = text.replace(/{JOB}/g, announcementTitle);
+    text = text.replace(/{ID}/g, announcementId);
+    text = text.replace(/{DATE}/g, announcementDate);
+    text = text.replace(/{LOCATION}/g, announcementLocation);
+    text = text.replace(/{SALARY}/g, announcementSalary);
+    text = text.replace(/{HOURS}/g, announcementHours);
+    text = text.replace(/{LINK}/g, announcementAppUrl || window.location.origin);
+    return text;
+  };
+
+  const [templatesSaved, setTemplatesSaved] = useState(false);
+
+  const [interviewTemplate, setInterviewTemplate] = useState(() => {
+    try {
+      const saved = localStorage.getItem('interviewTemplate');
+      if (saved) return saved;
+    } catch {}
+    return `السلام عليكم ورحمة الله وبركاته، أستاذ/أستاذة {NAME} المحترم.
+
+نفيدكم من إدارة الموارد البشرية بشركة مصنع جدة للدهانات والمعاجين، بأنه يسعدنا تحديد موعد المقابلة الشخصية معكم للوظيفة التالية:
+📌 المسمى الوظيفي: {JOB}
+🔢 رقم الطلب: {ID}
+
+📅 اليوم والتاريخ: {DATE}
+⏰ الوقت المحدد: في تمام الساعة {TIME}
+🔗 رابط المقابلة: {LINK}
+
+⚠️ نرجو التكرم بالتواجد قبل موعد المقابلة بـ 15 دقيقة للتأكد من استقرار الاتصال والشبكة.
+
+نسأل الله لكم التوفيق والنجاح.
+إدارة الموارد البشرية
+شركة مصنع جدة للدهانات والمعاجين`;
+  });
+
+  const [rejectionTemplate, setRejectionTemplate] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rejectionTemplate');
+      if (saved) return saved;
+    } catch {}
+    return `السلام عليكم ورحمة الله وبركاته، أستاذ/أستاذة {NAME} المحترم.
+
+نشكر لكم تقديمكم واهتمامكم بالانضمام إلى شركة مصنع جدة للدهانات والمعاجين لوظيفة {JOB} ورقم الطلب {ID}.
+
+يؤسفنا إبلاغكم بأنه تم اختيار مرشحين آخرين تتناسب مؤهلاتهم بشكل وثيق مع متطلبات الوظيفة الحالية. سنحتفظ بملفكم في قاعدة بياناتنا للتواصل معكم في حال توفر شواغر مستقبلية تناسب خبراتكم المميزة.
+
+نتمنى لكم كل التوفيق في مسيرتكم المهنية.
+إدارة الموارد البشرية
+شركة مصنع جدة للدهانات والمعاجين`;
+  });
+
+  const [announcementTemplate, setAnnouncementTemplate] = useState(() => {
+    try {
+      const saved = localStorage.getItem('announcementTemplate');
+      if (saved) return saved;
+    } catch {}
+    return `📣 *إعلان وظيفي لعامة الناس - شركة مصنع جدة للدهانات والمعاجين* 🇸🇦
+
+يسر إدارة الموارد البشرية بشركة مصنع جدة للدهانات والمعاجين الإعلان عن توفر فرصة وظيفية شاغرة ومتاحة للتقديم المباشر لجميع المواطنين المؤهلين:
+
+💼 *المسمى الوظيفي:* {JOB}
+🔢 *رقم الإعلان الوظيفي:* {ID}
+📅 *تاريخ الإعلان:* {DATE}
+
+📍 *مقر العمل:* {LOCATION}
+
+🎯 *الهدف الوظيفي:*
+الإشراف الشامل على صالات الإنتاج والمستودعات والتحكم في المخاطر الكيميائية وتطبيق نظام صارم للوقاية من الحريق وتأمين ممارسات العمل لضمان صفر حوادث وإصابات.
+
+🛠️ *المؤهلات والشروط المطلوبة:*
+1️⃣ درجة البكالوريوس في الهندسة الكيميائية، هندسة السلامة، علوم البيئة، أو تخصص مماثل.
+2️⃣ خبرة عملية لا تقل عن سنتين (2) في المصانع الكيميائية أو مصانع الطلاء والدهانات.
+3️⃣ شهادة مهنية دولية معتمدة (مثل NEBOSH IGC أو OSHA 30-Hour المتقدمة).
+4️⃣ معرفة قوية بمتطلبات السلامة العامة والحرائق الكيميائية وإدارة معايير ISO 45001.
+5️⃣ مهارات تواصل ممتازة وكتابة التقارير باللغتين العربية والإنجليزية.
+6️⃣ *يفضل تقديم السيرة الذاتية باللغة العربية.* 📄
+7️⃣ *يفضل وجود ترخيص معتمد من منصة كوادر (سيطلب رفعه في نموذج التقديم إن وُجد).* 🛡️
+
+💰 *المزايا وبيئة العمل الموفرة:*
+• الراتب شهرياً: {SALARY}
+• ساعات العمل: {HOURS}
+• إجازة سنوية مدفوعة الأجر طبقاً لنظام العمل السعودي (21 يوماً).
+
+🔗 *رابط التقديم المباشر وتعبئة الطلب:*
+{LINK}
+
+📞 *للاستفسارات والتواصل المباشر عبر الواتساب:*
+https://wa.me/966537375580
+
+✨ *نرحب بجميع الكفاءات الوطنية الطموحة للانضمام إلى فريق عملنا المتميز!*`;
+  });
 
   // Manual HR Evaluation form state
   const [hrEvalForm, setHrEvalForm] = useState<HrEvaluation>({
@@ -176,6 +363,21 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
       setIsAuthenticated(true);
     }
   }, [adminToken]);
+
+  // Load Google Meet Auth state
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      (user, token) => {
+        setGoogleUser(user);
+        setGoogleToken(token);
+      },
+      () => {
+        setGoogleUser(null);
+        setGoogleToken(null);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
 
   // Load applicants and statistics
   useEffect(() => {
@@ -551,8 +753,233 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
     hrEvalForm.personalityRating
   ]);
 
+  // Google Auth Connection and Disconnection
+  const handleGoogleConnect = async () => {
+    setIsConnectingGoogle(true);
+    try {
+      const res = await googleSignIn();
+      if (res) {
+        setGoogleUser(res.user);
+        setGoogleToken(res.accessToken);
+        alert("تم ربط حساب Google الخاص بك بنجاح! بإمكانك الآن توليد روابط Google Meet حقيقية وموثوقة تلقائياً.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`فشل ربط حساب Google: ${err.message || err}`);
+    } finally {
+      setIsConnectingGoogle(false);
+    }
+  };
+
+  const handleGoogleDisconnect = async () => {
+    try {
+      await googleLogout();
+      setGoogleUser(null);
+      setGoogleToken(null);
+      alert("تم فصل حساب Google بنجاح.");
+    } catch (err: any) {
+      console.error(err);
+      alert(`فشل فصل الحساب: ${err.message || err}`);
+    }
+  };
+
+  // Automatic Scheduling logic
+  const handleAutoSchedule = async () => {
+    const unsched = applicants.filter(a => !a.interviewSchedule);
+    if (unsched.length === 0) {
+      alert("لا يوجد مرشحون بانتظار ترتيب مواعيدهم حالياً.");
+      return;
+    }
+
+    if (!confirm(`هل أنت متأكد من رغبتك في جدولة مواعيد تلقائية لعدد (${unsched.length}) من المرشحين بناءً على الفترات المحددة؟`)) {
+      return;
+    }
+
+    setIsSchedulingAuto(true);
+    setAutoScheduleResults(null);
+    setSchedulingProgress({
+      total: unsched.length,
+      current: 0,
+      currentName: 'بدء تهيئة محرك الجدولة التلقائية...',
+      logs: ['🚀 جاري تهيئة محرك الجدولة التلقائية الذكي...', `📋 تم العثور على عدد (${unsched.length}) مرشحين بانتظار الجدولة.`]
+    });
+
+    const details: string[] = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    const addMinutes = (timeStr: string, mins: number): string => {
+      const [h, m] = timeStr.split(':').map(Number);
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      d.setMinutes(d.getMinutes() + mins);
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      return `${hours}:${minutes}`;
+    };
+
+    const compareTime = (t1: string, t2: string): number => {
+      const [h1, m1] = t1.split(':').map(Number);
+      const [h2, m2] = t2.split(':').map(Number);
+      return (h1 * 60 + m1) - (h2 * 60 + m2);
+    };
+
+    try {
+      const days: string[] = [];
+      let currentDay = new Date(autoFromDate);
+      const lastDay = new Date(autoToDate);
+      
+      let iterations = 0;
+      while (currentDay <= lastDay && iterations < 90) {
+        iterations++;
+        days.push(currentDay.toISOString().split('T')[0]);
+        currentDay.setDate(currentDay.getDate() + 1);
+      }
+
+      setSchedulingProgress(prev => prev ? {
+        ...prev,
+        logs: [...prev.logs, `📅 تم توليد نطاق التواريخ المتاحة: من ${autoFromDate} إلى ${autoToDate} (${days.length} أيام)`]
+      } : null);
+
+      let dayIndex = 0;
+      let currentTime = autoStartTime;
+      let candidateIndex = 0;
+
+      while (candidateIndex < unsched.length && dayIndex < days.length) {
+        const activeDay = days[dayIndex];
+        const slotStart = currentTime;
+        const slotEnd = addMinutes(slotStart, autoDuration);
+
+        if (compareTime(slotEnd, autoEndTime) <= 0) {
+          const applicant = unsched[candidateIndex];
+          const currentStep = candidateIndex + 1;
+          
+          setSchedulingProgress(prev => prev ? {
+            ...prev,
+            current: currentStep,
+            currentName: applicant.personalInfo.fullName,
+            logs: [...prev.logs, `🔄 جاري معالجة المرشح (${currentStep}/${unsched.length}): ${applicant.personalInfo.fullName}...`]
+          } : null);
+
+          let meetLink = defaultMeetingLink;
+          let linkGenerated = false;
+
+          if (googleToken) {
+            setSchedulingProgress(prev => prev ? {
+              ...prev,
+              logs: [...prev.logs, `📹 جاري توليد رابط Google Meet حقيقي عبر API...`]
+            } : null);
+            try {
+              meetLink = await createGoogleMeetSpace(googleToken);
+              linkGenerated = true;
+            } catch (meetErr: any) {
+              console.error(`Error generating Meet link for ${applicant.personalInfo.fullName}:`, meetErr);
+              const errMsg = `⚠️ فشل توليد رابط Google Meet لـ ${applicant.personalInfo.fullName}: ${meetErr.message || meetErr}`;
+              details.push(errMsg);
+              setSchedulingProgress(prev => prev ? {
+                ...prev,
+                logs: [...prev.logs, errMsg]
+              } : null);
+            }
+          }
+
+          try {
+            const res = await fetch(`/api/admin/applicants/${applicant.id}/review`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${adminToken}`
+              },
+              body: JSON.stringify({
+                status: 'interview',
+                interviewSchedule: {
+                  name: applicant.personalInfo.fullName,
+                  date: activeDay,
+                  time: slotStart,
+                  type: 'remote',
+                  meetingLink: meetLink,
+                  whatsappSent: false
+                }
+              })
+            });
+
+            if (res.ok) {
+              successCount++;
+              const succMsg = `✅ تم بنجاح جدولة موعد ${applicant.personalInfo.fullName} في ${activeDay} الساعة ${slotStart}`;
+              details.push(succMsg + (linkGenerated ? ' (مع رابط Meet حقيقي)' : ''));
+              setSchedulingProgress(prev => prev ? {
+                ...prev,
+                logs: [...prev.logs, succMsg]
+              } : null);
+            } else {
+              failedCount++;
+              const failMsg = `❌ فشل حفظ الموعد في خادم قاعدة البيانات لـ ${applicant.personalInfo.fullName}`;
+              details.push(failMsg);
+              setSchedulingProgress(prev => prev ? {
+                ...prev,
+                logs: [...prev.logs, failMsg]
+              } : null);
+            }
+          } catch (fetchErr: any) {
+            failedCount++;
+            const connMsg = `❌ خطأ في الاتصال بالخادم لـ ${applicant.personalInfo.fullName}`;
+            details.push(connMsg);
+            setSchedulingProgress(prev => prev ? {
+              ...prev,
+              logs: [...prev.logs, connMsg]
+            } : null);
+          }
+
+          candidateIndex++;
+          currentTime = addMinutes(slotEnd, autoBreak);
+        } else {
+          dayIndex++;
+          currentTime = autoStartTime;
+          setSchedulingProgress(prev => prev ? {
+            ...prev,
+            logs: [...prev.logs, `📆 انتقال إلى اليوم التالي: ${days[dayIndex] || 'انتهت الأيام المتاحة'}`]
+          } : null);
+        }
+      }
+
+      if (candidateIndex < unsched.length) {
+        const warnMsg = `⚠️ لم يتسع الجدول لجميع المتقدمين! تم جدولة ${candidateIndex} من أصل ${unsched.length} مرشحين.`;
+        details.push(warnMsg);
+        setSchedulingProgress(prev => prev ? {
+          ...prev,
+          logs: [...prev.logs, warnMsg]
+        } : null);
+      }
+
+      setAutoScheduleResults({
+        successCount,
+        failedCount,
+        details
+      });
+
+      setSchedulingProgress(prev => prev ? {
+        ...prev,
+        current: unsched.length,
+        currentName: 'تم اكتمال الجدولة التلقائية بنجاح! 🎉',
+        logs: [...prev.logs, `🎉 اكتملت العملية بنجاح! تم جدولة ${successCount} مرشحين بنجاح، وفشل ${failedCount} مرشحين.`]
+      } : null);
+
+      setRefreshTrigger(prev => prev + 1);
+    } catch (err: any) {
+      console.error(err);
+      const errMsg = `💥 حدث خطأ غير متوقع أثناء الجدولة التلقائية: ${err.message || err}`;
+      alert(errMsg);
+      setSchedulingProgress(prev => prev ? {
+        ...prev,
+        logs: [...prev.logs, errMsg]
+      } : null);
+    } finally {
+      setIsSchedulingAuto(false);
+    }
+  };
+
   // Save Interview Schedule and auto-promote to 'interview' status
-  const handleSaveSchedule = async (applicant: Applicant, name: string, date: string, time: string, type: string) => {
+  const handleSaveSchedule = async (applicant: Applicant, name: string, date: string, time: string, type: string, meetingLink: string) => {
     try {
       const res = await fetch(`/api/admin/applicants/${applicant.id}/review`, {
         method: 'PATCH',
@@ -566,6 +993,7 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
             date,
             time,
             type,
+            meetingLink,
             whatsappSent: true
           }
         })
@@ -585,29 +1013,44 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
   };
 
   // Generate hybrid WhatsApp link and open it in a new window
-  const handleSendWhatsApp = (applicant: Applicant, name: string, date: string, time: string, type: string) => {
-    // Generate the professional message
-    const formattedDate = new Date(date).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const formattedTime = time; // e.g., "14:30"
+  const handleSendWhatsApp = (applicant: Applicant, name: string, date: string, time: string, type: string, customMeetingLink?: string) => {
+    let text = interviewTemplate;
+    text = text.replace(/{NAME}/g, name || '');
+    text = text.replace(/{JOB}/g, announcementTitle || 'أخصائي صحة وسلامة وبيئة (HSE)');
+    text = text.replace(/{ID}/g, applicant.id || '');
     
-    const message = `السلام عليكم ورحمة الله وبركاته، أستاذ/أستاذة ${name} المحترم.
+    const formattedDate = date 
+      ? new Date(date).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+      : '';
+    text = text.replace(/{DATE}/g, formattedDate);
+    text = text.replace(/{TIME}/g, time || '');
+    text = text.replace(/{TYPE}/g, type === 'remote' ? 'عن بعد' : 'حضوري بمقر الشركة');
+    
+    const meetingLinkToUse = customMeetingLink || applicant.interviewSchedule?.meetingLink || defaultMeetingLink;
+    text = text.replace(/{LINK}/g, meetingLinkToUse || announcementAppUrl || window.location.origin);
 
-نفيدكم من إدارة الموارد البشرية بشركة مصنع جدة للدهانات والمعاجين، بأنه تم استقبال تقديمكم الموقر عبر موقع جدارات للوظيفة التالية:
-📌 المسمى الوظيفي: مشرف صحة وسلامة مهنية
-رقم الإعلان الوظيفي: 20260706023116938
-تاريخ الإعلان: 21/01/1448
+    const encodedMessage = encodeURIComponent(text);
+    const cleanPhone = applicant.personalInfo.phone.replace(/[\s\-\+\(\)]/g, '');
+    let formattedPhone = cleanPhone;
+    if (formattedPhone.startsWith('0')) {
+      formattedPhone = '966' + formattedPhone.substring(1);
+    } else if (!formattedPhone.startsWith('966') && formattedPhone.length === 9) {
+      formattedPhone = '966' + formattedPhone;
+    }
+    
+    const waUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
+    window.open(waUrl, '_blank');
+  };
 
-ويسعدنا تحديد موعد المقابلة الشخصية معكم (عن بعد):
-📅 اليوم والتاريخ: ${formattedDate}
-⏰ الوقت المحدد: في تمام الساعة ${formattedTime}
+  // Send customizable rejection / apology message
+  const handleSendRejectionWhatsApp = (applicant: Applicant) => {
+    let text = rejectionTemplate;
+    text = text.replace(/{NAME}/g, applicant.personalInfo.fullName || '');
+    text = text.replace(/{JOB}/g, announcementTitle || 'أخصائي صحة وسلامة وبيئة (HSE)');
+    text = text.replace(/{ID}/g, applicant.id || '');
+    text = text.replace(/{LINK}/g, announcementAppUrl || window.location.origin);
 
-⚠️ نرجو التكرم بالتواجد قبل موعد المقابلة بـ 15 دقيقة للتأكد من استقرار الاتصال والشبكة.
-
-نسأل الله لكم التوفيق والنجاح.
-إدارة الموارد البشرية
-شركة مصنع جدة للدهانات والمعاجين`;
-
-    const encodedMessage = encodeURIComponent(message);
+    const encodedMessage = encodeURIComponent(text);
     const cleanPhone = applicant.personalInfo.phone.replace(/[\s\-\+\(\)]/g, '');
     let formattedPhone = cleanPhone;
     if (formattedPhone.startsWith('0')) {
@@ -1042,6 +1485,73 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                     <span className="text-[10px] text-slate-400 block mb-1">سنوات الخبرة</span>
                     <span className="text-xs font-bold text-slate-700">{selectedApplicant.personalInfo.experienceYears} سنوات</span>
                   </div>
+                </div>
+              </div>
+              
+              {/* WhatsApp Communications Quick Actions Card */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4 text-right print:hidden">
+                <h4 className="font-extrabold text-slate-900 border-b border-slate-100 pb-3 mb-2 flex items-center gap-1.5 text-sm">
+                  <MessageSquare className="text-orange-500 w-4 h-4" />
+                  التواصل وإرسال إشعارات الواتساب الجاهزة 💬
+                </h4>
+
+                <div className="space-y-3">
+                  {/* Template 1 Invitation Trigger */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-150 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-700 block">1. إرسال دعوة المقابلة الشخصية 🗓️</span>
+                    {selectedApplicant.interviewSchedule ? (
+                      <div className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-1.5 rounded-lg font-bold border border-emerald-100 mb-2">
+                        ✓ تم جدولة موعد في {new Date(selectedApplicant.interviewSchedule.date).toLocaleDateString('ar-SA')} الساعة {selectedApplicant.interviewSchedule.time}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-orange-600 bg-orange-50 px-2 py-1.5 rounded-lg font-bold border border-orange-100 mb-2">
+                        ⚠️ لم يتم جدولة موعد رسمي للمرشح بعد (يمكن الإرسال بدونه).
+                      </div>
+                    )}
+                    <button
+                      onClick={() => {
+                        const sched = selectedApplicant.interviewSchedule;
+                        handleSendWhatsApp(
+                          selectedApplicant,
+                          selectedApplicant.personalInfo.fullName,
+                          sched?.date || '',
+                          sched?.time || '',
+                          sched?.type || 'remote'
+                        );
+                      }}
+                      className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>إرسال دعوة المقابلة عبر الواتساب</span>
+                    </button>
+                  </div>
+
+                  {/* Template 2 Rejection Trigger */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-150 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-700 block">2. إرسال رسالة الاعتذار والرفض ✉️</span>
+                    <p className="text-[9px] text-slate-400 font-semibold leading-normal">
+                      سيتم فتح محادثة واتساب مع المرشح تحتوي على رسالة الاعتذار الرسمية المناسبة لوظيفة {announcementTitle || 'أخصائي صحة وسلامة مهنية'}.
+                    </p>
+                    <button
+                      onClick={() => handleSendRejectionWhatsApp(selectedApplicant)}
+                      className="w-full py-2 px-3 bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white border border-rose-200 hover:border-rose-500 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>إرسال رسالة الاعتذار عبر الواتساب</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-center pt-1">
+                  <button
+                    onClick={() => {
+                      setActiveSubTab('templates');
+                      setSelectedApplicant(null);
+                    }}
+                    className="text-[10px] text-orange-500 hover:underline font-bold inline-flex items-center gap-1"
+                  >
+                    <span>تعديل وصياغة نصوص القوالب الافتراضية ⚙️</span>
+                  </button>
                 </div>
               </div>
 
@@ -1499,23 +2009,31 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                       <div>
                         <span className="text-emerald-400 font-bold text-xs block mb-2">أهم نقاط القوة الفنية:</span>
                         <ul className="space-y-2">
-                          {selectedApplicant.aiEvaluation.strengths.map((s, idx) => (
-                            <li key={idx} className="flex gap-2 text-xs text-slate-300 items-start leading-relaxed">
-                              <span className="text-emerald-500 font-bold">•</span>
-                              <span>{s}</span>
-                            </li>
-                          ))}
+                          {Array.isArray(selectedApplicant.aiEvaluation.strengths) ? (
+                            selectedApplicant.aiEvaluation.strengths.map((s, idx) => (
+                              <li key={idx} className="flex gap-2 text-xs text-slate-300 items-start leading-relaxed">
+                                <span className="text-emerald-500 font-bold">•</span>
+                                <span>{s}</span>
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-xs text-slate-400 italic">لا توجد نقاط قوة مسجلة</li>
+                          )}
                         </ul>
                       </div>
                       <div>
                         <span className="text-red-400 font-bold text-xs block mb-2">جوانب النقص والمخاطر:</span>
                         <ul className="space-y-2">
-                          {selectedApplicant.aiEvaluation.weaknesses.map((w, idx) => (
-                            <li key={idx} className="flex gap-2 text-xs text-slate-300 items-start leading-relaxed">
-                              <span className="text-red-500 font-bold">•</span>
-                              <span>{w}</span>
-                            </li>
-                          ))}
+                          {Array.isArray(selectedApplicant.aiEvaluation.weaknesses) ? (
+                            selectedApplicant.aiEvaluation.weaknesses.map((w, idx) => (
+                              <li key={idx} className="flex gap-2 text-xs text-slate-300 items-start leading-relaxed">
+                                <span className="text-red-500 font-bold">•</span>
+                                <span>{w}</span>
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-xs text-slate-400 italic">لا توجد جوانب نقص مسجلة</li>
+                          )}
                         </ul>
                       </div>
                     </div>
@@ -1524,12 +2042,16 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                     <div className="border-t border-slate-800 pt-4 text-right">
                       <span className="text-orange-400 font-bold text-xs block mb-2">أسئلة مقترحة وموجهة للمقابلة الشخصية:</span>
                       <ul className="space-y-3">
-                        {selectedApplicant.aiEvaluation.suggestedQuestions.map((q, idx) => (
-                          <li key={idx} className="bg-slate-800 p-3 rounded-lg border border-slate-750 text-xs text-slate-200 leading-relaxed">
-                            <span className="font-bold text-orange-400 font-mono block mb-0.5">سؤال مقابلة مقترح {idx + 1}:</span>
-                            {q}
-                          </li>
-                        ))}
+                        {Array.isArray(selectedApplicant.aiEvaluation.suggestedQuestions) ? (
+                          selectedApplicant.aiEvaluation.suggestedQuestions.map((q, idx) => (
+                            <li key={idx} className="bg-slate-800 p-3 rounded-lg border border-slate-750 text-xs text-slate-200 leading-relaxed">
+                              <span className="font-bold text-orange-400 font-mono block mb-0.5">سؤال مقابلة مقترح {idx + 1}:</span>
+                              {q}
+                            </li>
+                          ))
+                        ) : (
+                          <li className="text-xs text-slate-400 italic">لا توجد أسئلة مقابلة مقترحة</li>
+                        )}
                       </ul>
                     </div>
 
@@ -1805,6 +2327,17 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
               <MessageSquare className="w-4 h-4" />
               <span>إعلان الوظيفة للواتساب 📣</span>
             </button>
+            <button
+              onClick={() => setActiveSubTab('templates')}
+              className={`pb-4 text-xs sm:text-sm font-extrabold transition-all border-b-2 flex items-center gap-2 ${
+                activeSubTab === 'templates'
+                  ? 'border-orange-500 text-orange-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Settings className="w-4 h-4 text-slate-500" />
+              <span>قوالب الرسائل الجاهزة 💬</span>
+            </button>
           </div>
 
           {activeSubTab === 'applicants' && (
@@ -2008,6 +2541,192 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
 
           {activeSubTab === 'schedules' && (
             <div className="space-y-8 animate-fade-in" id="schedules-view-tab">
+              {/* Smart Automatic Scheduling and Google Meet Integration Card */}
+              <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 text-white p-6 md:p-8 rounded-3xl border border-slate-800 shadow-xl space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+                  <div className="text-right">
+                    <h3 className="font-extrabold text-lg flex items-center gap-2 text-indigo-400 justify-start md:justify-start">
+                      <Settings className="w-6 h-6 text-indigo-400" />
+                      <span>نظام الجدولة الذكية وأتمتة المقابلات (Google Meet API)</span>
+                    </h3>
+                    <p className="text-slate-400 text-xs mt-1">
+                      قم بجدولة المقابلات وتوليد روابط Google Meet حقيقية وموثوقة لجميع المرشحين المؤهلين تلقائياً بضغطة زر واحدة.
+                    </p>
+                  </div>
+                  
+                  {/* Google Connection Status */}
+                  <div className="flex items-center gap-3 bg-slate-800/40 p-3 rounded-2xl border border-slate-800/50 self-start md:self-auto">
+                    {googleUser ? (
+                      <div className="flex items-center gap-3 text-right">
+                        {googleUser.photoURL ? (
+                          <img src={googleUser.photoURL} alt={googleUser.displayName || ''} className="w-8 h-8 rounded-full border border-indigo-400" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-indigo-500 text-white flex items-center justify-center font-bold text-xs">
+                            {googleUser.displayName?.charAt(0) || 'G'}
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-[10px] text-emerald-400 font-bold block">✓ متصل بـ Google</span>
+                          <span className="text-xs font-bold text-slate-200 block max-w-[150px] truncate">{googleUser.displayName || googleUser.email}</span>
+                        </div>
+                        <button
+                          onClick={handleGoogleDisconnect}
+                          className="text-[10px] font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-2.5 py-1.5 rounded-lg transition-all border border-rose-500/20 cursor-pointer"
+                        >
+                          قطع الاتصال
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row items-center gap-2">
+                        <span className="text-xs font-semibold text-slate-300 text-center sm:text-right">حساب Google غير مرتبط حالياً:</span>
+                        <button
+                          onClick={handleGoogleConnect}
+                          disabled={isConnectingGoogle}
+                          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs px-3 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer border border-indigo-500"
+                        >
+                          {isConnectingGoogle ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>جاري الاتصال...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Video className="w-3.5 h-3.5" />
+                              <span>ربط حساب Google (Meet)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Configuration Parameters */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 text-right">
+                  {/* From Date */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 block">من تاريخ:</label>
+                    <input
+                      type="date"
+                      value={autoFromDate}
+                      onChange={(e) => setAutoFromDate(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 font-bold outline-none focus:border-indigo-500 transition-all font-mono"
+                    />
+                  </div>
+
+                  {/* To Date */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 block">إلى تاريخ:</label>
+                    <input
+                      type="date"
+                      value={autoToDate}
+                      onChange={(e) => setAutoToDate(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 font-bold outline-none focus:border-indigo-500 transition-all font-mono"
+                    />
+                  </div>
+
+                  {/* Start Time */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 block">بداية الدوام اليومي:</label>
+                    <input
+                      type="time"
+                      value={autoStartTime}
+                      onChange={(e) => setAutoStartTime(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 font-bold outline-none focus:border-indigo-500 transition-all font-mono"
+                    />
+                  </div>
+
+                  {/* End Time */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 block">نهاية الدوام اليومي:</label>
+                    <input
+                      type="time"
+                      value={autoEndTime}
+                      onChange={(e) => setAutoEndTime(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 font-bold outline-none focus:border-indigo-500 transition-all font-mono"
+                    />
+                  </div>
+
+                  {/* Interview Duration */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 block">مدة المقابلة (بالدقائق):</label>
+                    <input
+                      type="number"
+                      value={autoDuration}
+                      onChange={(e) => setAutoDuration(Number(e.target.value))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 font-bold outline-none focus:border-indigo-500 transition-all font-mono"
+                      min="5"
+                      max="120"
+                    />
+                  </div>
+
+                  {/* Break Duration */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 block">فترة الاستراحة (بالدقائق):</label>
+                    <input
+                      type="number"
+                      value={autoBreak}
+                      onChange={(e) => setAutoBreak(Number(e.target.value))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 font-bold outline-none focus:border-indigo-500 transition-all font-mono"
+                      min="0"
+                      max="60"
+                    />
+                  </div>
+                </div>
+
+                {/* Trigger and Status */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-4 border-t border-slate-800">
+                  <div className="text-right text-xs text-slate-400">
+                    <span>عدد المرشحين بانتظار الترتيب تلقائياً: </span>
+                    <span className="text-orange-400 font-black font-mono">
+                      {applicants.filter(a => !a.interviewSchedule).length} مرشحاً
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={handleAutoSchedule}
+                    disabled={isSchedulingAuto || applicants.filter(a => !a.interviewSchedule).length === 0}
+                    className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold text-xs px-6 py-3.5 rounded-2xl flex items-center gap-2 transition-all shadow-lg shadow-emerald-950/20 self-end cursor-pointer"
+                  >
+                    {isSchedulingAuto ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>جاري ترتيب الجدولة وتوليد الغرف تلقائياً...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Settings className="w-4 h-4" />
+                        <span>تشغيل المحرك والجدولة التلقائية الآن 🚀</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Results Log Display */}
+                {autoScheduleResults && (
+                  <div className="bg-slate-950/80 rounded-2xl border border-slate-800/80 p-5 space-y-3 max-h-[300px] overflow-y-auto text-right">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <button
+                        onClick={() => setAutoScheduleResults(null)}
+                        className="text-[10px] font-bold text-slate-400 hover:text-slate-200"
+                      >
+                        إغلاق السجل
+                      </button>
+                      <h4 className="font-extrabold text-sm text-indigo-400">📊 نتائج الجدولة التلقائية الذكية:</h4>
+                    </div>
+                    <div className="text-xs text-slate-300 font-semibold flex items-center gap-4">
+                      <span>الجدولة الناجحة: <span className="text-emerald-400 font-black">{autoScheduleResults.successCount}</span></span>
+                      <span>العمليات الفاشلة: <span className="text-rose-400 font-black">{autoScheduleResults.failedCount}</span></span>
+                    </div>
+                    <div className="space-y-1.5 font-mono text-[10px] divide-y divide-slate-900 pt-2 text-slate-400">
+                      {autoScheduleResults.details.map((log, i) => (
+                        <div key={i} className="py-1">{log}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Scheduling Form and Info Box Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
@@ -2043,7 +2762,7 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                     <div className="bg-slate-800/40 p-3 rounded-2xl text-right">
                       <span className="text-slate-400 text-[10px] font-bold block mb-1">بانتظار الترتيب</span>
                       <span className="text-xl font-black text-orange-400 font-mono">
-                        {applicants.filter(a => !a.interviewSchedule && a.status === 'interview').length}
+                        {applicants.filter(a => !a.interviewSchedule).length}
                       </span>
                     </div>
                   </div>
@@ -2070,59 +2789,83 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                             setScheduleDate(app.interviewSchedule?.date || '');
                             setScheduleTime(app.interviewSchedule?.time || '');
                             setScheduleType(app.interviewSchedule?.type || 'remote');
+                            setScheduleMeetingLink(app.interviewSchedule?.meetingLink || defaultMeetingLink);
                           } else {
                             setSchedulingApplicant(null);
                             setScheduleName('');
                             setScheduleDate('');
                             setScheduleTime('');
                             setScheduleType('remote');
+                            setScheduleMeetingLink('');
                           }
                         }}
                         className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs bg-white font-semibold"
                       >
                         <option value="">-- اضغط هنا لاختيار المتقدم --</option>
-                        {applicants.map(a => (
-                          <option key={a.id} value={a.id}>
-                            {a.personalInfo.fullName} (رقم الطلب: {a.id} {a.interviewSchedule ? ' - مجدول مسبقاً 🗓️' : ''})
-                          </option>
-                        ))}
+                        {applicants
+                          .filter(a => !a.interviewSchedule || a.id === schedulingApplicant?.id)
+                          .map(a => (
+                            <option key={a.id} value={a.id}>
+                              {a.personalInfo.fullName} (رقم الطلب: {a.id} {a.interviewSchedule ? ' - مجدول مسبقاً 🗓️' : ''})
+                            </option>
+                          ))}
                       </select>
                     </div>
 
                     {schedulingApplicant && (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                        {/* Name Input */}
-                        <div className="space-y-1 text-right">
-                          <label className="text-slate-700 text-xs font-bold block">اسم المتقدم للمقابلة:</label>
-                          <input
-                            type="text"
-                            value={scheduleName}
-                            onChange={(e) => setScheduleName(e.target.value)}
-                            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
-                            placeholder="الاسم الكامل"
-                          />
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                          {/* Name Input */}
+                          <div className="space-y-1 text-right">
+                            <label className="text-slate-700 text-xs font-bold block">اسم المتقدم للمقابلة:</label>
+                            <input
+                              type="text"
+                              value={scheduleName}
+                              onChange={(e) => setScheduleName(e.target.value)}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
+                              placeholder="الاسم الكامل"
+                            />
+                          </div>
+
+                          {/* Date Input */}
+                          <div className="space-y-1 text-right">
+                            <label className="text-slate-700 text-xs font-bold block">تاريخ المقابلة:</label>
+                            <input
+                              type="date"
+                              value={scheduleDate}
+                              onChange={(e) => setScheduleDate(e.target.value)}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
+                            />
+                          </div>
+
+                          {/* Time Input */}
+                          <div className="space-y-1 text-right">
+                            <label className="text-slate-700 text-xs font-bold block">وقت المقابلة:</label>
+                            <input
+                              type="time"
+                              value={scheduleTime}
+                              onChange={(e) => setScheduleTime(e.target.value)}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
+                            />
+                          </div>
                         </div>
 
-                        {/* Date Input */}
+                        {/* Meeting Link Input */}
                         <div className="space-y-1 text-right">
-                          <label className="text-slate-700 text-xs font-bold block">تاريخ المقابلة:</label>
+                          <label className="text-slate-700 text-xs font-bold block flex items-center gap-1.5 justify-end">
+                            <span>رابط القاعة الافتراضية لهذه المقابلة (أو استخدم الرابط المشترك):</span>
+                            <Video className="w-3.5 h-3.5 text-orange-500" />
+                          </label>
                           <input
-                            type="date"
-                            value={scheduleDate}
-                            onChange={(e) => setScheduleDate(e.target.value)}
-                            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
+                            type="url"
+                            value={scheduleMeetingLink}
+                            onChange={(e) => setScheduleMeetingLink(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold font-mono text-left bg-slate-50 focus:bg-white focus:border-orange-500 transition-all"
+                            placeholder="https://meet.google.com/... or Zoom link"
                           />
-                        </div>
-
-                        {/* Time Input */}
-                        <div className="space-y-1 text-right">
-                          <label className="text-slate-700 text-xs font-bold block">وقت المقابلة:</label>
-                          <input
-                            type="time"
-                            value={scheduleTime}
-                            onChange={(e) => setScheduleTime(e.target.value)}
-                            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
-                          />
+                          <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                            💡 يتم تعبئة هذا الحقل تلقائياً برابط القاعة الافتراضي المشترك، وبإمكانك تعديله أو تخصيصه لهذا المرشح على حدة إذا لزم الأمر.
+                          </p>
                         </div>
                       </div>
                     )}
@@ -2136,6 +2879,7 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                             setScheduleName('');
                             setScheduleDate('');
                             setScheduleTime('');
+                            setScheduleMeetingLink('');
                           }}
                           className="w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 text-xs rounded-xl transition-all"
                         >
@@ -2144,7 +2888,7 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                         
                         <button
                           type="button"
-                          onClick={() => handleSaveSchedule(schedulingApplicant, scheduleName, scheduleDate, scheduleTime, scheduleType)}
+                          onClick={() => handleSaveSchedule(schedulingApplicant, scheduleName, scheduleDate, scheduleTime, scheduleType, scheduleMeetingLink)}
                           disabled={!scheduleDate || !scheduleTime || !scheduleName}
                           className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-5 py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md"
                         >
@@ -2154,7 +2898,7 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
 
                         <button
                           type="button"
-                          onClick={() => handleSendWhatsApp(schedulingApplicant, scheduleName, scheduleDate, scheduleTime, scheduleType)}
+                          onClick={() => handleSendWhatsApp(schedulingApplicant, scheduleName, scheduleDate, scheduleTime, scheduleType, scheduleMeetingLink)}
                           disabled={!scheduleDate || !scheduleTime || !scheduleName}
                           className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-5 py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-600/10"
                         >
@@ -2221,9 +2965,25 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                                 <td className="p-4 text-slate-700 font-bold">{arabDate}</td>
                                 <td className="p-4 text-center text-slate-900 font-black font-mono bg-orange-500/5">{sched.time}</td>
                                 <td className="p-4 text-center">
-                                  <span className="bg-blue-50 text-blue-700 text-xs px-2.5 py-1 rounded-full font-bold">
-                                    مقابلة عن بعد (15 دقيقة قبل)
-                                  </span>
+                                  <div className="flex flex-col items-center justify-center gap-1">
+                                    <span className="bg-indigo-50 text-indigo-700 text-[10px] px-2.5 py-1 rounded-full font-bold">
+                                      مقابلة عن بعد 💻
+                                    </span>
+                                    {sched.meetingLink ? (
+                                      <a
+                                        href={sched.meetingLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-emerald-600 hover:text-emerald-700 hover:underline text-[10px] font-bold flex items-center gap-0.5 font-mono"
+                                        title={sched.meetingLink}
+                                      >
+                                        <Video className="w-3 h-3 text-emerald-500 inline" />
+                                        <span>رابط القاعة 📹</span>
+                                      </a>
+                                    ) : (
+                                      <span className="text-slate-400 text-[10px]">لا يوجد رابط</span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="p-4 font-mono ltr text-right text-slate-600">{a.personalInfo.phone}</td>
                                 <td className="p-4 text-center">
@@ -2306,11 +3066,11 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                 <div className="max-w-3xl space-y-3">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                    نشر عام لجميع المجموعات والمنصات
+                    نشر عام لجميع المجموعات والمنصات (مخصصة بالكامل)
                   </span>
-                  <h3 className="text-xl md:text-2xl font-black text-white">إطلاق ونشر الإعلان الوظيفي لعامة الناس 📣</h3>
+                  <h3 className="text-xl md:text-2xl font-black text-white">تعديل ونشر الإعلان الوظيفي لعامة الناس 📣</h3>
                   <p className="text-slate-300 text-xs md:text-sm leading-relaxed font-light">
-                    هنا يمكنك صياغة الإعلان الموجه لعامة الناس للتقديم على وظيفة <strong className="text-orange-400">أخصائي صحة وسلامة وبيئة (HSE)</strong>. قمنا بتنسيق الإعلان بشكل احترافي للغاية ليتناسب مع النشر المباشر عبر مجموعات الواتساب، القنوات المهنية، منصات التوظيف ومواقع التواصل الاجتماعي، متضمناً كافة الشروط كشغلك لمتطلبات "منصة كوادر"، السيرة الذاتية ورقم الإعلان المعتمد.
+                    هنا يمكنك صياغة وتعديل الإعلان الموجه لعامة الناس للتقديم على الوظيفة. قمنا بتنسيق الإعلان بشكل احترافي للغاية ليتناسب مع النشر المباشر عبر مجموعات الواتساب ومواقع التواصل، ويمكنك الآن تعديل المسمى الوظيفي، الراتب، الساعات، الرقم المعتمد، وتاريخ الإعلان ليعكس أي تحديثات فوراً في النص المنسق والجاهز للمشاركة.
                   </p>
                 </div>
               </div>
@@ -2340,61 +3100,125 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
                       </span>
                     </div>
 
-                    {/* Quick Stats Summary */}
-                    <div className="bg-orange-50/50 rounded-2xl p-4 border border-orange-100/40 text-xs space-y-2 text-slate-700">
-                      <p className="font-bold text-orange-950 flex items-center gap-1.5 mb-1">
+                    {/* Custom Editable Fields Form */}
+                    <div className="space-y-4 border-t border-slate-100 pt-4">
+                      <p className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                         <Award className="w-4 h-4 text-orange-600" />
-                        <span>بيانات الإعلان الوظيفي المضمنة:</span>
+                        <span>تعديل بيانات الإعلان الوظيفي المضمنة:</span>
                       </p>
-                      <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 pr-1 font-semibold text-[11px]">
-                        <div>• المسمى: <span className="text-slate-900 font-bold">أخصائي صحة وسلامة HSE</span></div>
-                        <div>• رقم الإعلان: <span className="text-slate-900 font-mono">20260706023116938</span></div>
-                        <div>• التاريخ: <span className="text-slate-900 font-mono">21/01/1448 هـ</span></div>
-                        <div>• الراتب: <span className="text-slate-900">4,500 - 6,000 ريال</span></div>
-                        <div>• ساعات العمل: <span className="text-slate-900">9 ساعات (6 أيام)</span></div>
-                        <div>• الموقع: <span className="text-slate-900">حي الرحاب، جدة</span></div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-right">
+                        {/* Title */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-600 block">المسمى الوظيفي:</label>
+                          <input
+                            type="text"
+                            value={announcementTitle}
+                            onChange={(e) => setAnnouncementTitle(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-2.5 py-2 outline-none text-xs bg-slate-50 focus:bg-white focus:border-orange-500 font-bold text-slate-800"
+                          />
+                        </div>
+
+                        {/* ID */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-600 block">رقم الإعلان الوظيفي:</label>
+                          <input
+                            type="text"
+                            value={announcementId}
+                            onChange={(e) => setAnnouncementId(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-2.5 py-2 outline-none text-xs bg-slate-50 focus:bg-white focus:border-orange-500 font-mono font-bold text-slate-800 text-left"
+                          />
+                        </div>
+
+                        {/* Date */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-600 block">تاريخ الإعلان:</label>
+                          <input
+                            type="text"
+                            value={announcementDate}
+                            onChange={(e) => setAnnouncementDate(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-2.5 py-2 outline-none text-xs bg-slate-50 focus:bg-white focus:border-orange-500 font-semibold text-slate-800"
+                          />
+                        </div>
+
+                        {/* Salary */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-600 block">الراتب شهرياً:</label>
+                          <input
+                            type="text"
+                            value={announcementSalary}
+                            onChange={(e) => setAnnouncementSalary(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-2.5 py-2 outline-none text-xs bg-slate-50 focus:bg-white focus:border-orange-500 font-semibold text-slate-800"
+                          />
+                        </div>
+
+                        {/* Hours */}
+                        <div className="space-y-1 md:col-span-2">
+                          <label className="text-[11px] font-bold text-slate-600 block">ساعات العمل والأيام:</label>
+                          <input
+                            type="text"
+                            value={announcementHours}
+                            onChange={(e) => setAnnouncementHours(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-2.5 py-2 outline-none text-xs bg-slate-50 focus:bg-white focus:border-orange-500 font-semibold text-slate-800"
+                          />
+                        </div>
+
+                        {/* Location */}
+                        <div className="space-y-1 md:col-span-2">
+                          <label className="text-[11px] font-bold text-slate-600 block">الموقع الجغرافي للعمل:</label>
+                          <input
+                            type="text"
+                            value={announcementLocation}
+                            onChange={(e) => setAnnouncementLocation(e.target.value)}
+                            className="w-full border border-slate-200 rounded-xl px-2.5 py-2 outline-none text-xs bg-slate-50 focus:bg-white focus:border-orange-500 font-semibold text-slate-800"
+                          />
+                        </div>
                       </div>
+                    </div>
+
+                    {/* Save Settings Button */}
+                    <div className="pt-3 border-t border-slate-100">
+                      <button
+                        onClick={() => {
+                          try {
+                            localStorage.setItem('announcementAppUrl', announcementAppUrl);
+                            localStorage.setItem('announcementTitle', announcementTitle);
+                            localStorage.setItem('announcementId', announcementId);
+                            localStorage.setItem('announcementDate', announcementDate);
+                            localStorage.setItem('announcementSalary', announcementSalary);
+                            localStorage.setItem('announcementHours', announcementHours);
+                            localStorage.setItem('announcementLocation', announcementLocation);
+                            setSettingsSaved(true);
+                            setTimeout(() => setSettingsSaved(false), 3000);
+                          } catch (e) {
+                            console.error('Failed to save announcement settings:', e);
+                          }
+                        }}
+                        className={`w-full py-2.5 px-4 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-sm active:scale-[0.98] border ${
+                          settingsSaved
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                            : 'bg-orange-500 hover:bg-orange-600 text-white border-transparent'
+                        }`}
+                      >
+                        {settingsSaved ? (
+                          <>
+                            <Check className="w-4 h-4 text-emerald-600 animate-bounce" />
+                            <span>تم حفظ إعدادات الإعلان بنجاح! ✓</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4 text-white animate-pulse" />
+                            <span>حفظ إعدادات الإعلان الحالية 💾</span>
+                          </>
+                        )}
+                      </button>
                     </div>
 
                     {/* Actions Buttons */}
                     <div className="space-y-2.5 pt-2">
                       <button
                         onClick={() => {
-                          const text = `📣 *إعلان وظيفي لعامة الناس - شركة مصنع جدة للدهانات والمعاجين* 🇸🇦
-
-يسر إدارة الموارد البشرية بشركة مصنع جدة للدهانات والمعاجين الإعلان عن توفر فرصة وظيفية شاغرة ومتاحة للتقديم المباشر لجميع المواطنين المؤهلين:
-
-💼 *المسمى الوظيفي:* أخصائي صحة وسلامة وبيئة (HSE)
-🔢 *رقم الإعلان الوظيفي:* 20260706023116938
-📅 *تاريخ الإعلان:* 21/01/1448 هـ
-
-📍 *مقر العمل:* جدة - حي الرحاب
-
-🎯 *الهدف الوظيفي:*
-الإشراف الشامل على صالات الإنتاج والمستودعات والتحكم في المخاطر الكيميائية وتطبيق نظام صارم للوقاية من الحريق وتأمين ممارسات العمل لضمان صفر حوادث وإصابات.
-
-🛠️ *المؤهلات والشروط المطلوبة:*
-1️⃣ درجة البكالوريوس في الهندسة الكيميائية، هندسة السلامة، علوم البيئة، أو تخصص مماثل.
-2️⃣ خبرة عملية لا تقل عن سنتين (2) في المصانع الكيميائية أو مصانع الطلاء والدهانات.
-3️⃣ شهادة مهنية دولية معتمدة (مثل NEBOSH IGC أو OSHA 30-Hour المتقدمة).
-4️⃣ معرفة قوية بمتطلبات السلامة العامة والحرائق الكيميائية وإدارة معايير ISO 45001.
-5️⃣ مهارات تواصل ممتازة وكتابة التقارير باللغتين العربية والإنجليزية.
-6️⃣ *يفضل تقديم السيرة الذاتية باللغة العربية.* 📄
-7️⃣ *يفضل وجود ترخيص معتمد من منصة كوادر (سيطلب رفعه في نموذج التقديم إن وُجد).* 🛡️
-
-💰 *المزايا وبيئة العمل الموفرة:*
-• الراتب شهرياً: 4,500 ريال إلى 6,000 ريال (حسب المؤهل والخبرة).
-• أيام العمل: 6 أيام أسبوعياً (الجمعة يوم الراحة الأسبوعية).
-• ساعات العمل: 9 ساعات يومياً (تتضمن ساعة راحة وبريك).
-• إجازة سنوية مدفوعة الأجر طبقاً لنظام العمل السعودي (21 يوماً).
-
-🔗 *رابط التقديم المباشر وتعبئة الطلب:*
-${announcementAppUrl}
-
-📞 *للاستفسارات والتواصل المباشر عبر الواتساب:*
-https://wa.me/966537375580
-
-✨ *نرحب بجميع الكفاءات الوطنية الطموحة للانضمام إلى فريق عملنا المتميز!*`;
+                          const text = compileAnnouncementText();
                           navigator.clipboard.writeText(text);
                           setAnnouncementCopied(true);
                           setTimeout(() => setAnnouncementCopied(false), 3000);
@@ -2407,7 +3231,7 @@ https://wa.me/966537375580
                       >
                         {announcementCopied ? (
                           <>
-                            <CheckCircle className="w-4 h-4 text-emerald-300 animate-bounce" />
+                            <Check className="w-4 h-4 text-emerald-300 animate-bounce" />
                             <span>تم نسخ الإعلان بنجاح! جاهز للصق الآن ✓</span>
                           </>
                         ) : (
@@ -2419,41 +3243,7 @@ https://wa.me/966537375580
                       </button>
 
                       <a
-                        href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`📣 *إعلان وظيفي لعامة الناس - شركة مصنع جدة للدهانات والمعاجين* 🇸🇦
-
-يسر إدارة الموارد البشرية بشركة مصنع جدة للدهانات والمعاجين الإعلان عن توفر فرصة وظيفية شاغرة ومتاحة للتقديم المباشر لجميع المواطنين المؤهلين:
-
-💼 *المسمى الوظيفي:* أخصائي صحة وسلامة وبيئة (HSE)
-🔢 *رقم الإعلان الوظيفي:* 20260706023116938
-📅 *تاريخ الإعلان:* 21/01/1448 هـ
-
-📍 *مقر العمل:* جدة - حي الرحاب
-
-🎯 *الهدف الوظيفي:*
-الإشراف الشامل على صالات الإنتاج والمستودعات والتحكم في المخاطر الكيميائية وتطبيق نظام صارم للوقاية من الحريق وتأمين ممارسات العمل لضمان صفر حوادث وإصابات.
-
-🛠️ *المؤهلات والشروط المطلوبة:*
-1️⃣ درجة البكالوريوس في الهندسة الكيميائية، هندسة السلامة، علوم البيئة، أو تخصص مماثل.
-2️⃣ خبرة عملية لا تقل عن سنتين (2) في المصانع الكيميائية أو مصانع الطلاء والدهانات.
-3️⃣ شهادة مهنية دولية معتمدة (مثل NEBOSH IGC أو OSHA 30-Hour المتقدمة).
-4️⃣ معرفة قوية بمتطلبات السلامة العامة والحرائق الكيميائية وإدارة معايير ISO 45001.
-5️⃣ مهارات تواصل ممتازة وكتابة التقارير باللغتين العربية والإنجليزية.
-6️⃣ *يفضل تقديم السيرة الذاتية باللغة العربية.* 📄
-7️⃣ *يفضل وجود ترخيص معتمد من منصة كوادر (سيطلب رفعه في نموذج التقديم إن وُجد).* 🛡️
-
-💰 *المزايا وبيئة العمل الموفرة:*
-• الراتب شهرياً: 4,500 ريال إلى 6,000 ريال (حسب المؤهل والخبرة).
-• أيام العمل: 6 أيام أسبوعياً (الجمعة يوم الراحة الأسبوعية).
-• ساعات العمل: 9 ساعات يومياً (تتضمن ساعة راحة وبريك).
-• إجازة سنوية مدفوعة الأجر طبقاً لنظام العمل السعودي (21 يوماً).
-
-🔗 *رابط التقديم المباشر وتعبئة الطلب:*
-${announcementAppUrl}
-
-📞 *للاستفسارات والتواصل المباشر عبر الواتساب:*
-https://wa.me/966537375580
-
-✨ *نرحب بجميع الكفاءات الوطنية الطموحة للانضمام إلى فريق عملنا المتميز!*`)}`}
+                        href={`https://api.whatsapp.com/send?text=${encodeURIComponent(compileAnnouncementText())}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-600/10 active:scale-[0.98]"
@@ -2472,7 +3262,7 @@ https://wa.me/966537375580
                     <ul className="list-disc list-inside space-y-1 pr-1 font-semibold text-right">
                       <li>انشر الرابط في مجموعات واتساب المخصصة لمهندسي السلامة والـ HSE في السعودية.</li>
                       <li>يمكنك نسخ النص ونشره عبر منصة LinkedIn المهنية للوصول إلى كوادر ذات خبرة سنتين أو أكثر.</li>
-                      <li>تأكد من بقاء رقم الإعلان (20260706023116938) ثابتاً ليتم مطابقته لاحقاً بنظام جدارات ومنصات الموارد البشرية.</li>
+                      <li>تأكد من بقاء رقم الإعلان ثابتاً ليتم مطابقته لاحقاً بنظام جدارات ومنصات الموارد البشرية.</li>
                     </ul>
                   </div>
                 </div>
@@ -2502,53 +3292,361 @@ https://wa.me/966537375580
                       
                       {/* WhatsApp Speech Bubble */}
                       <div className="max-w-[85%] bg-[#dcf8c6] rounded-2xl rounded-tr-none p-3.5 shadow-sm text-slate-800 space-y-2 text-[11px] leading-relaxed mr-auto relative text-right">
-                        <div className="font-extrabold text-[#128c7e] text-xs pb-1 border-b border-emerald-100 mb-1">
-                          📣 شركة مصنع جدة للدهانات والمعاجين 🇸🇦
+                        <div className="whitespace-pre-wrap">
+                          {compileAnnouncementText()}
                         </div>
-                        
-                        <p>يسر إدارة الموارد البشرية بشركة مصنع جدة للدهانات والمعاجين الإعلان عن توفر فرصة وظيفية شاغرة ومتاحة للتقديم المباشر لجميع المواطنين المؤهلين:</p>
-                        
-                        <p>💼 <strong>المسمى الوظيفي:</strong> أخصائي صحة وسلامة وبيئة (HSE)<br />
-                        🔢 <strong>رقم الإعلان الوظيفي:</strong> 20260706023116938<br />
-                        📅 <strong>تاريخ الإعلان:</strong> 21/01/1448 هـ</p>
-
-                        <p>📍 <strong>مقر العمل:</strong> جدة - حي الرحاب</p>
-
-                        <p>🎯 <strong>الهدف الوظيفي:</strong><br />
-                        الإشراف الشامل على صالات الإنتاج والمستودعات والتحكم في المخاطر الكيميائية وتطبيق نظام صارم للوقاية من الحريق وتأمين ممارسات العمل لضمان صفر حوادث وإصابات.</p>
-
-                        <p>🛠️ <strong>المؤهلات والشروط المطلوبة:</strong><br />
-                        1️⃣ درجة البكالوريوس في الهندسة الكيميائية، هندسة السلامة، علوم البيئة، أو تخصص مماثل.<br />
-                        2️⃣ خبرة عملية لا تقل عن سنتين (2) في المصانع الكيميائية أو مصانع الطلاء والدهانات.<br />
-                        3️⃣ شهادة مهنية دولية معتمدة (مثل NEBOSH IGC أو OSHA 30-Hour المتقدمة).<br />
-                        4️⃣ معرفة قوية بمتطلبات السلامة العامة والحرائق الكيميائية وإدارة معايير ISO 45001.<br />
-                        5️⃣ مهارات تواصل ممتازة وكتابة التقارير باللغتين العربية والإنجليزية.<br />
-                        6️⃣ <em>يفضل تقديم السيرة الذاتية باللغة العربية.</em> 📄<br />
-                        7️⃣ <em>يفضل وجود ترخيص معتمد من منصة كوادر (سيطلب رفعه في نموذج التقديم إن وُجد).</em> 🛡️</p>
-
-                        <p>💰 <strong>المزايا وبيئة العمل الموفرة:</strong><br />
-                        • الراتب شهرياً: 4,500 ريال إلى 6,000 ريال (حسب المؤهل والخبرة).<br />
-                        • أيام العمل: 6 أيام أسبوعياً (الجمعة يوم الراحة الأسبوعية).<br />
-                        • ساعات العمل: 9 ساعات يومياً (تتضمن ساعة راحة وبريك).<br />
-                        • إجازة سنوية مدفوعة الأجر طبقاً لنظام العمل السعودي (21 يوماً).</p>
-
-                        <p>🔗 <strong>رابط التقديم المباشر وتعبئة الطلب:</strong><br />
-                        <span className="text-blue-600 hover:underline break-all font-bold">
-                          {announcementAppUrl}
-                        </span></p>
-
-                        <p>📞 <strong>للاستفسارات والتواصل المباشر عبر الواتساب:</strong><br />
-                        <span className="text-blue-600 hover:underline font-bold">
-                          https://wa.me/966537375580
-                        </span></p>
-
-                        <p className="font-bold text-[#128c7e] text-center pt-2">✨ نرحب بجميع الكفاءات الوطنية الطموحة للانضمام إلى فريق عملنا المتميز!</p>
 
                         <div className="text-[9px] text-slate-400 text-left font-mono mt-1">
                           {new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })} ✓✓
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSubTab === 'templates' && (
+            <div className="space-y-8 animate-fade-in text-right" id="templates-view-tab">
+              {/* Top Banner */}
+              <div className="bg-gradient-to-l from-slate-900 via-slate-850 to-slate-900 text-white p-6 md:p-8 rounded-3xl border border-slate-800 shadow-xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl -z-10"></div>
+                <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -z-10"></div>
+                
+                <div className="max-w-3xl space-y-3">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    <Settings className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+                    التحكم الكامل والربط التلقائي عبر الواتساب
+                  </span>
+                  <h3 className="text-xl md:text-2xl font-black text-white">صياغة وتعديل قوالب رسائل الواتساب الذكية 💬</h3>
+                  <p className="text-slate-300 text-xs md:text-sm leading-relaxed font-light">
+                    بإمكانك هنا صياغة القوالب الموحدة التي تظهر تلقائياً عند النقر على خيارات إرسال الواتساب للمرشحين. استخدم الرموز البرمجية (الأكواد المحجوزة) مثل <code className="bg-slate-800 text-orange-400 px-1 py-0.5 rounded font-mono text-xs font-bold">{`{NAME}`}</code> أو <code className="bg-slate-800 text-orange-400 px-1 py-0.5 rounded font-mono text-xs font-bold">{`{DATE}`}</code> ليقوم النظام تلقائياً باستبدالها بالبيانات الفعلية لكل مرشح عند إنشاء رابط محادثة الواتساب.
+                  </p>
+                </div>
+              </div>
+
+              {/* Layout Content */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Inputs Columns */}
+                <div className="lg:col-span-7 space-y-6">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+                    <h4 className="font-extrabold text-slate-900 text-sm border-b border-slate-100 pb-3 flex items-center gap-2">
+                      <Settings className="w-4 h-4 text-orange-500" />
+                      تخصيص قوالب الرسائل الجاهزة
+                    </h4>
+
+                    {/* Placeholder Helper tags block */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2">
+                      <span className="text-xs font-bold text-slate-700 block">الرموز التلقائية المتاحة للاستخدام في النص:</span>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {[
+                          { tag: '{NAME}', label: 'اسم المرشح' },
+                          { tag: '{JOB}', label: 'المسمى الوظيفي' },
+                          { tag: '{ID}', label: 'رقم طلب التقديم' },
+                          { tag: '{DATE}', label: 'تاريخ المقابلة' },
+                          { tag: '{TIME}', label: 'وقت المقابلة' },
+                          { tag: '{TYPE}', label: 'نوع المقابلة' },
+                          { tag: '{LINK}', label: 'رابط البوابة الإلكترونية' }
+                        ].map((t) => (
+                          <button
+                            key={t.tag}
+                            onClick={() => {
+                              navigator.clipboard.writeText(t.tag);
+                              alert(`تم نسخ الرمز ${t.tag} للحافظة! يمكنك لصقه الآن في أي مكان بالنص.`);
+                            }}
+                            type="button"
+                            className="bg-white hover:bg-orange-50 text-slate-700 hover:text-orange-600 border border-slate-200 hover:border-orange-200 px-2.5 py-1.5 rounded-lg text-[10px] font-bold font-mono transition-all flex items-center gap-1 shadow-sm"
+                            title="انقر لنسخ الرمز واستخدامه في القالب"
+                          >
+                            <span className="text-orange-500 font-extrabold">{t.tag}</span>
+                            <span className="text-slate-400">({t.label})</span>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-semibold pt-1">💡 انقر على أي رمز أعلاه لنسخه مباشرة ثم الصقه داخل الحقول أدناه.</p>
+                    </div>
+
+                    {/* Default Virtual Meeting Link Configuration */}
+                    <div className="bg-orange-50/40 p-5 rounded-2xl border border-orange-100/80 space-y-2">
+                      <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5 justify-end">
+                        <span>رابط قاعة المقابلات الافتراضية الموحد (المشترك):</span>
+                        <Video className="w-4 h-4 text-orange-500" />
+                      </label>
+                      <input
+                        type="url"
+                        value={defaultMeetingLink}
+                        onChange={(e) => {
+                          setDefaultMeetingLink(e.target.value);
+                          try {
+                            localStorage.setItem('defaultMeetingLink', e.target.value);
+                          } catch {}
+                        }}
+                        className="w-full border border-orange-200/60 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold font-mono text-left bg-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all shadow-sm"
+                        placeholder="https://meet.google.com/abc-defg-hij"
+                      />
+                      <p className="text-[10px] text-slate-500 font-medium leading-relaxed text-right">
+                        💡 هذا الرابط سيتم تعبئته تلقائياً كخيار افتراضي عند جدولة أي موعد مقابلة جديد، ليحل محل الرمز <span className="font-mono text-orange-600 font-bold">{'{LINK}'}</span> في نص رسالة الواتساب، مع بقاء الإمكانية لتغييره أو تخصيصه لكل مرشح بشكل منفصل أثناء الجدولة.
+                      </p>
+                    </div>
+
+                    {/* Template 1: Interview Invitation */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-extrabold text-slate-800 flex items-center gap-2 justify-between">
+                        <span>1. قالب رسالة دعوة المقابلة الشخصية (موحدة):</span>
+                        <span className="text-[10px] text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full">تحديث فوري لجميع المرشحين</span>
+                      </label>
+                      <textarea
+                        value={interviewTemplate}
+                        onChange={(e) => setInterviewTemplate(e.target.value)}
+                        rows={10}
+                        className="w-full border border-slate-200 rounded-2xl p-4 text-xs font-semibold focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none leading-relaxed text-slate-700 bg-slate-50/20"
+                        placeholder="اكتب قالب رسالة دعوة المقابلة هنا..."
+                      />
+                    </div>
+
+                    {/* Template 2: Rejection / Apology */}
+                    <div className="space-y-2 pt-2">
+                      <label className="text-xs font-extrabold text-slate-800 flex items-center gap-2 justify-between">
+                        <span>2. قالب رسالة الاعتذار ورفض الطلب (موحدة):</span>
+                        <span className="text-[10px] text-rose-500 bg-rose-50 px-2 py-0.5 rounded-full">للمرشحين غير المناسبين</span>
+                      </label>
+                      <textarea
+                        value={rejectionTemplate}
+                        onChange={(e) => setRejectionTemplate(e.target.value)}
+                        rows={10}
+                        className="w-full border border-slate-200 rounded-2xl p-4 text-xs font-semibold focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none leading-relaxed text-slate-700 bg-slate-50/20"
+                        placeholder="اكتب قالب رسالة الاعتذار والرفض هنا..."
+                      />
+                    </div>
+
+                    {/* Template 3: General Job Announcement */}
+                    <div className="space-y-2 pt-2">
+                      <label className="text-xs font-extrabold text-slate-800 flex items-center gap-2 justify-between">
+                        <span>3. قالب الإعلان الوظيفي العام للواتساب 📣:</span>
+                        <span className="text-[10px] text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full">للنشر العام والمجموعات</span>
+                      </label>
+                      <textarea
+                        value={announcementTemplate}
+                        onChange={(e) => setAnnouncementTemplate(e.target.value)}
+                        rows={12}
+                        className="w-full border border-slate-200 rounded-2xl p-4 text-xs font-semibold focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none leading-relaxed text-slate-700 bg-slate-50/20 font-mono"
+                        placeholder="اكتب قالب الإعلان الوظيفي هنا..."
+                      />
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row gap-3">
+                      <button
+                        onClick={() => {
+                          try {
+                            localStorage.setItem('interviewTemplate', interviewTemplate);
+                            localStorage.setItem('rejectionTemplate', rejectionTemplate);
+                            localStorage.setItem('announcementTemplate', announcementTemplate);
+                            localStorage.setItem('defaultMeetingLink', defaultMeetingLink);
+                            setTemplatesSaved(true);
+                            setTimeout(() => setTemplatesSaved(false), 3000);
+                          } catch (e) {
+                            console.error(e);
+                            alert('فشل حفظ القوالب، يرجى المحاولة لاحقاً.');
+                          }
+                        }}
+                        className={`flex-1 py-3 px-6 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-sm active:scale-95 border ${
+                          templatesSaved
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                            : 'bg-orange-500 hover:bg-orange-600 text-white border-transparent shadow-orange-500/10'
+                        }`}
+                      >
+                        {templatesSaved ? (
+                          <>
+                            <Check className="w-4 h-4 text-emerald-600 animate-bounce" />
+                            <span>تم حفظ وتثبيت القوالب بنجاح! ✓</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4 text-white" />
+                            <span>حفظ قوالب رسائل الواتساب وتعميمها 💾</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm('هل أنت متأكد من رغبتك في إعادة تعيين القوالب إلى الصيغة الرسمية الافتراضية؟')) {
+                            localStorage.removeItem('interviewTemplate');
+                            localStorage.removeItem('rejectionTemplate');
+                            localStorage.removeItem('announcementTemplate');
+                            setInterviewTemplate(`السلام عليكم ورحمة الله وبركاته، أستاذ/أستاذة {NAME} المحترم.
+
+نفيدكم من إدارة الموارد البشرية بشركة مصنع جدة للدهانات والمعاجين، بأنه يسعدنا تحديد موعد المقابلة الشخصية معكم للوظيفة التالية:
+📌 المسمى الوظيفي: {JOB}
+🔢 رقم الطلب: {ID}
+
+📅 اليوم والتاريخ: {DATE}
+⏰ الوقت المحدد: في تمام الساعة {TIME}
+🔗 رابط المقابلة: {LINK}
+
+⚠️ نرجو التكرم بالتواجد قبل موعد المقابلة بـ 15 دقيقة للتأكد من استقرار الاتصال والشبكة.
+
+نسأل الله لكم التوفيق والنجاح.
+إدارة الموارد البشرية
+شركة مصنع جدة للدهانات والمعاجين`);
+                            setRejectionTemplate(`السلام عليكم ورحمة الله وبركاته، أستاذ/أستاذة {NAME} المحترم.
+
+نشكر لكم تقديمكم واهتمامكم بالانضمام إلى شركة مصنع جدة للدهانات والمعاجين لوظيفة {JOB} ورقم الطلب {ID}.
+
+يؤسفنا إبلاغكم بأنه تم اختيار مرشحين آخرين تتناسب مؤهلاتهم بشكل وثيق مع متطلبات الوظيفة الحالية. سنحتفظ بملفكم في قاعدة بياناتنا للتواصل معكم في حال توفر شواغر مستقبلية تناسب خبراتكم المميزة.
+
+نتمنى لكم كل التوفيق في مسيرتكم المهنية.
+إدارة الموارد البشرية
+شركة مصنع جدة للدهانات والمعاجين`);
+                            setAnnouncementTemplate(`📣 *إعلان وظيفي لعامة الناس - شركة مصنع جدة للدهانات والمعاجين* 🇸🇦
+
+يسر إدارة الموارد البشرية بشركة مصنع جدة للدهانات والمعاجين الإعلان عن توفر فرصة وظيفية شاغرة ومتاحة للتقديم المباشر لجميع المواطنين المؤهلين:
+
+💼 *المسمى الوظيفي:* {JOB}
+🔢 *رقم الإعلان الوظيفي:* {ID}
+📅 *تاريخ الإعلان:* {DATE}
+
+📍 *مقر العمل:* {LOCATION}
+
+🎯 *الهدف الوظيفي:*
+الإشراف الشامل على صالات الإنتاج والمستودعات والتحكم في المخاطر الكيميائية وتطبيق نظام صارم للوقاية من الحريق وتأمين ممارسات العمل لضمان صفر حوادث وإصابات.
+
+🛠️ *المؤهلات والشروط المطلوبة:*
+1️⃣ درجة البكالوريوس في الهندسة الكيميائية، هندسة السلامة، علوم البيئة، أو تخصص مماثل.
+2️⃣ خبرة عملية لا تقل عن سنتين (2) في المصانع الكيميائية أو مصانع الطلاء والدهانات.
+3️⃣ شهادة مهنية دولية معتمدة (مثل NEBOSH IGC أو OSHA 30-Hour المتقدمة).
+4️⃣ معرفة قوية بمتطلبات السلامة العامة والحرائق الكيميائية وإدارة معايير ISO 45001.
+5️⃣ مهارات تواصل ممتازة وكتابة التقارير باللغتين العربية والإنجليزية.
+6️⃣ *يفضل تقديم السيرة الذاتية باللغة العربية.* 📄
+7️⃣ *يفضل وجود ترخيص معتمد من منصة كوادر (سيطلب رفعه في نموذج التقديم إن وُجد).* 🛡️
+
+💰 *المزايا وبيئة العمل الموفرة:*
+• الراتب شهرياً: {SALARY}
+• ساعات العمل: {HOURS}
+• إجازة سنوية مدفوعة الأجر طبقاً لنظام العمل السعودي (21 يوماً).
+
+🔗 *رابط التقديم المباشر وتعبئة الطلب:*
+{LINK}
+
+📞 *للاستفسارات والتواصل المباشر عبر الواتساب:*
+https://wa.me/966537375580
+
+✨ *نرحب بجميع الكفاءات الوطنية الطموحة للانضمام إلى فريق عملنا المتميز!*`);
+                          }
+                        }}
+                        type="button"
+                        className="py-3 px-4 border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-700 rounded-xl font-bold text-xs transition-all"
+                      >
+                        إعادة تعيين الافتراضي 🔄
+                      </button>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Live Preview column */}
+                <div className="lg:col-span-5 space-y-6">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                    <h4 className="font-extrabold text-slate-900 text-sm border-b border-slate-100 pb-3 flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-emerald-500" />
+                      معاينة حية وتفاعلية للرسالة
+                    </h4>
+                    <p className="text-[11px] text-slate-400 font-semibold leading-relaxed">
+                      هذا العرض يوضح شكل الرسالة الفعلية التي ستنتج عند إرسالها لمرشح تجريبي يدعى (عبدالرحمن سالم باشنيني) ببيانات افتراضية.
+                    </p>
+
+                    {/* Interview Message Preview Box */}
+                    <div className="space-y-2">
+                      <span className="text-[11px] font-bold text-slate-500 block">معاينة: رسالة دعوة المقابلة الذكية 🗓️</span>
+                      <div className="bg-[#e5ddd5] p-4 rounded-2xl relative overflow-hidden min-h-[150px] border border-slate-200 flex flex-col justify-end">
+                        <div className="absolute inset-0 bg-[radial-gradient(#dfdcd6_1px,transparent_1px)] [background-size:16px_16px] opacity-40"></div>
+                        <div className="max-w-[90%] bg-white rounded-2xl rounded-tr-none p-4 shadow-sm text-slate-850 space-y-2 text-[11px] leading-relaxed mr-auto relative text-right font-medium">
+                          <div className="whitespace-pre-wrap">
+                            {(() => {
+                              const demoApplicant: any = {
+                                id: '20260712001',
+                                personalInfo: {
+                                  fullName: 'عبدالرحمن سالم باشنيني',
+                                  phone: '0599222345'
+                                }
+                              };
+                              let text = interviewTemplate;
+                              text = text.replace(/{NAME}/g, demoApplicant.personalInfo.fullName);
+                              text = text.replace(/{JOB}/g, announcementTitle || 'أخصائي صحة وسلامة وبيئة (HSE)');
+                              text = text.replace(/{ID}/g, demoApplicant.id);
+                              
+                              const formattedDate = new Date().toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                              text = text.replace(/{DATE}/g, formattedDate);
+                              text = text.replace(/{TIME}/g, '10:30 ص');
+                              text = text.replace(/{TYPE}/g, 'عن بعد (عبر منصة Zoom)');
+                              text = text.replace(/{LINK}/g, announcementAppUrl || window.location.origin);
+                              return text;
+                            })()}
+                          </div>
+                          <div className="text-[9px] text-slate-400 text-left font-mono mt-1.5">
+                            {new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })} ✓✓
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Rejection Message Preview Box */}
+                    <div className="space-y-2 pt-2">
+                      <span className="text-[11px] font-bold text-slate-500 block">معاينة: رسالة الاعتذار والرفض الجاهزة ✉️</span>
+                      <div className="bg-[#e5ddd5] p-4 rounded-2xl relative overflow-hidden min-h-[150px] border border-slate-200 flex flex-col justify-end">
+                        <div className="absolute inset-0 bg-[radial-gradient(#dfdcd6_1px,transparent_1px)] [background-size:16px_16px] opacity-40"></div>
+                        <div className="max-w-[90%] bg-white rounded-2xl rounded-tr-none p-4 shadow-sm text-slate-850 space-y-2 text-[11px] leading-relaxed mr-auto relative text-right font-medium">
+                          <div className="whitespace-pre-wrap">
+                            {(() => {
+                              const demoApplicant: any = {
+                                id: '20260712001',
+                                personalInfo: {
+                                  fullName: 'عبدالرحمن سالم باشنيني',
+                                  phone: '0599222345'
+                                }
+                              };
+                              let text = rejectionTemplate;
+                              text = text.replace(/{NAME}/g, demoApplicant.personalInfo.fullName);
+                              text = text.replace(/{JOB}/g, announcementTitle || 'أخصائي صحة وسلامة وبيئة (HSE)');
+                              text = text.replace(/{ID}/g, demoApplicant.id);
+                              text = text.replace(/{LINK}/g, announcementAppUrl || window.location.origin);
+                              return text;
+                            })()}
+                          </div>
+                          <div className="text-[9px] text-slate-400 text-left font-mono mt-1.5">
+                            {new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })} ✓✓
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* General Job Announcement Preview Box */}
+                    <div className="space-y-2 pt-2">
+                      <span className="text-[11px] font-bold text-slate-500 block">معاينة: نص الإعلان الوظيفي العام للواتساب 📣</span>
+                      <div className="bg-[#e5ddd5] p-4 rounded-2xl relative overflow-hidden min-h-[250px] border border-slate-200 flex flex-col justify-end">
+                        <div className="absolute inset-0 bg-[radial-gradient(#dfdcd6_1px,transparent_1px)] [background-size:16px_16px] opacity-40"></div>
+                        <div className="max-w-[95%] bg-[#dcf8c6] rounded-2xl rounded-tr-none p-4 shadow-sm text-slate-850 space-y-2 text-[11px] leading-relaxed mr-auto relative text-right font-medium">
+                          <div className="whitespace-pre-wrap">
+                            {(() => {
+                              let text = announcementTemplate;
+                              text = text.replace(/{JOB}/g, announcementTitle || 'أخصائي صحة وسلامة وبيئة (HSE)');
+                              text = text.replace(/{ID}/g, announcementId || '2026-HSE-01');
+                              text = text.replace(/{DATE}/g, announcementDate || '12 يوليو 2026');
+                              text = text.replace(/{LOCATION}/g, announcementLocation || 'جدة - المدينة الصناعية الثانية');
+                              text = text.replace(/{SALARY}/g, announcementSalary || 'تحدد حسب المقابلة والخبرة');
+                              text = text.replace(/{HOURS}/g, announcementHours || '8 ساعات يومياً / 6 أيام عمل بالاسبوع');
+                              text = text.replace(/{LINK}/g, announcementAppUrl || window.location.origin);
+                              return text;
+                            })()}
+                          </div>
+                          <div className="text-[9px] text-emerald-700 text-left font-mono mt-1.5">
+                            {new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })} ✓✓
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                   </div>
                 </div>
               </div>
@@ -2877,6 +3975,116 @@ https://wa.me/966537375580
                 className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 px-6 rounded-xl transition-all shadow-sm"
               >
                 إغلاق المعاينة
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Scheduling Progress Overlay Modal */}
+      {schedulingProgress && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md" id="scheduling-progress-modal">
+          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl shadow-2xl max-w-xl w-full p-6 space-y-6 animate-fade-in text-right">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              {isSchedulingAuto ? (
+                <span className="bg-amber-500/10 text-amber-400 text-[10px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+                  <span>جاري الجدولة الآن...</span>
+                </span>
+              ) : (
+                <span className="bg-emerald-500/10 text-emerald-400 text-[10px] px-2.5 py-1 rounded-full font-bold">
+                  ✓ اكتملت العملية
+                </span>
+              )}
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <h3 className="font-black text-sm text-slate-100">محرك الجدولة التلقائية الذكي</h3>
+                  <p className="text-slate-400 text-[10px] font-medium">مزامنة المواعيد وتوليد غرف المقابلات الافتراضية</p>
+                </div>
+                <div className="bg-orange-500 p-2 rounded-2xl text-white">
+                  <Calendar className="w-5 h-5 text-white" />
+                </div>
+              </div>
+            </div>
+
+            {/* Progress Bar & Status */}
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs font-bold text-slate-300">
+                <span className="font-mono text-orange-400">
+                  {Math.round((schedulingProgress.current / schedulingProgress.total) * 100)}%
+                </span>
+                <span>
+                  معالجة {schedulingProgress.current} من أصل {schedulingProgress.total} مرشحين
+                </span>
+              </div>
+              
+              <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden p-0.5 border border-slate-700">
+                <div 
+                  className="bg-gradient-to-r from-orange-500 to-amber-400 h-full rounded-full transition-all duration-300 shadow-md"
+                  style={{ width: `${Math.round((schedulingProgress.current / schedulingProgress.total) * 100)}%` }}
+                ></div>
+              </div>
+            </div>
+
+            {/* Current Step Name */}
+            <div className="bg-slate-950/40 border border-slate-800/60 p-4 rounded-2xl flex items-center justify-between">
+              {isSchedulingAuto ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-400">يرجى عدم إغلاق هذه الصفحة...</span>
+                  <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : (
+                <span className="text-emerald-400 text-xs font-bold">✓ تم الانتهاء بنجاح!</span>
+              )}
+              <div className="text-right">
+                <span className="text-[10px] text-slate-500 block">العملية الحالية:</span>
+                <span className="text-xs font-black text-slate-200">{schedulingProgress.currentName}</span>
+              </div>
+            </div>
+
+            {/* Scrolling Logs Console */}
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 block pr-1">سجل الأحداث والعمليات (Real-time logs):</span>
+              <div 
+                className="bg-black/40 p-4 rounded-2xl h-44 overflow-y-auto font-mono text-[10px] text-right border border-slate-800/80 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-800"
+                ref={(el) => {
+                  if (el) {
+                    el.scrollTop = el.scrollHeight;
+                  }
+                }}
+              >
+                {schedulingProgress.logs.map((log, i) => {
+                  let colorClass = 'text-slate-300';
+                  if (log.startsWith('✅')) colorClass = 'text-emerald-400 font-bold';
+                  if (log.startsWith('❌')) colorClass = 'text-rose-400 font-bold';
+                  if (log.startsWith('⚠️')) colorClass = 'text-amber-400';
+                  if (log.startsWith('🚀')) colorClass = 'text-orange-400 font-extrabold';
+                  if (log.startsWith('📅')) colorClass = 'text-indigo-400';
+                  return (
+                    <div key={i} className={`${colorClass} leading-relaxed py-0.5 border-b border-slate-800/20 last:border-0`}>
+                      {log}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer / Actions */}
+            <div className="border-t border-slate-800 pt-4 flex justify-between items-center">
+              <span className="text-[10px] text-slate-500 font-medium font-mono">Powered by Google Meet API & JPF DB</span>
+              <button
+                onClick={() => setSchedulingProgress(null)}
+                disabled={isSchedulingAuto}
+                className={`px-6 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                  isSchedulingAuto 
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                    : 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-950/20 cursor-pointer'
+                }`}
+              >
+                {isSchedulingAuto ? 'جاري العمل... ⏳' : 'إغلاق ومتابعة النتائج 📥'}
               </button>
             </div>
 
