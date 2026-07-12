@@ -220,7 +220,9 @@ async function syncDatabase() {
       const loadedApplicants: Applicant[] = [];
       if (supabaseApplicants && supabaseApplicants.length > 0) {
         supabaseApplicants.forEach((row: any) => {
-          loadedApplicants.push(mapSupabaseToApplicant(row));
+          if (row.id && !row.id.startsWith("SYSTEM_SETTING_")) {
+            loadedApplicants.push(mapSupabaseToApplicant(row));
+          }
         });
         cachedApplicants = loadedApplicants;
         console.log(`Loaded ${cachedApplicants.length} applicants from Supabase.`);
@@ -293,7 +295,9 @@ async function ensureDbSynced(req: express.Request, res: express.Response, next:
         .from("applicants")
         .select("*");
       if (!applicantsErr && supabaseApplicants) {
-        cachedApplicants = supabaseApplicants.map(mapSupabaseToApplicant);
+        cachedApplicants = supabaseApplicants
+          .filter((row: any) => row.id && !row.id.startsWith("SYSTEM_SETTING_"))
+          .map(mapSupabaseToApplicant);
       }
     } catch (err) {
       console.error("Failed to refresh applicants from Supabase during request:", err);
@@ -825,21 +829,45 @@ async function saveSetting(key: string, value: string) {
     fs.writeFileSync(settingsFile, JSON.stringify(localSettings, null, 2), "utf8");
   } catch (err) {}
 
-  // 2. Save to Supabase (try settings table)
+  // 2. Save to Supabase (try settings table, fallback to storing as system row in applicants table)
   if (useSupabase && supabase) {
     try {
       const { error } = await supabase
         .from("settings")
         .upsert({ key, value });
+      
       if (error) {
-        console.warn("Could not upsert setting to Supabase 'settings' table:", error.message);
+        console.log(`Table 'settings' might not exist, saving setting '${key}' in 'applicants' table as a fallback...`);
+        const systemId = `SYSTEM_SETTING_${key.toUpperCase()}`;
+        const { error: fallbackError } = await supabase
+          .from("applicants")
+          .upsert({
+            id: systemId,
+            status: "system_setting",
+            created_at: new Date().toISOString(),
+            personal_info: { value },
+            industry_experience: {},
+            certificates: {},
+            exam_answers: {},
+            ai_evaluation: null,
+            hr_evaluation: null
+          });
+        if (fallbackError) {
+          console.error("Failed to save setting to applicants table:", fallbackError.message);
+        } else {
+          console.log(`Successfully saved setting '${key}' to applicants table.`);
+        }
+      } else {
+        console.log(`Successfully saved setting '${key}' to settings table.`);
       }
-    } catch (err) {}
+    } catch (err: any) {
+      console.error("Error saving setting to Supabase:", err.message);
+    }
   }
 }
 
 async function getSetting(key: string): Promise<string | null> {
-  // 1. Try to fetch from Supabase
+  // 1. Try to fetch from Supabase settings table
   if (useSupabase && supabase) {
     try {
       const { data, error } = await supabase
@@ -849,6 +877,18 @@ async function getSetting(key: string): Promise<string | null> {
         .maybeSingle();
       if (!error && data) {
         return data.value;
+      }
+      
+      // Fallback: check applicants table for SYSTEM_SETTING_ key
+      const systemId = `SYSTEM_SETTING_${key.toUpperCase()}`;
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("applicants")
+        .select("personal_info")
+        .eq("id", systemId)
+        .maybeSingle();
+      
+      if (!fallbackError && fallbackData && fallbackData.personal_info) {
+        return (fallbackData.personal_info as any).value || null;
       }
     } catch (err) {}
   }
@@ -1166,6 +1206,7 @@ app.get("/api/debug-status", (req, res) => {
     dbInitialized: !!supabase,
     adminsCount: cachedAdmins.length,
     applicantsCount: cachedApplicants.length,
+    allEnvKeys: Object.keys(process.env).filter(k => k.includes("SUPABASE") || k.includes("URL")),
     supabaseEnvConfigured: {
       url: !!process.env.SUPABASE_URL,
       publishableKey: !!process.env.SUPABASE_PUBLISHABLE_KEY,
