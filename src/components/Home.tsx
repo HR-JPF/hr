@@ -31,42 +31,42 @@ export default function Home({ onStartApply, onGoToAdmin }: HomeProps) {
             <div className="w-24 h-1 bg-gradient-to-r from-orange-500 to-blue-600 mx-auto rounded-full"></div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 mb-12 max-w-3xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 md:gap-12 mb-12 max-w-4xl mx-auto">
             {/* HSE Job Option */}
             <button
               onClick={() => setActiveTab('hse')}
-              className={`group relative flex flex-col items-center sm:items-start text-right p-5 rounded-2xl border-2 transition-all duration-300 ${
+              className={`group relative flex flex-col items-center sm:items-start text-right p-6 rounded-2xl border-3 transition-all duration-300 cursor-pointer ${
                 activeTab === 'hse'
-                  ? 'bg-slate-800/90 border-orange-500 shadow-xl shadow-orange-500/10 scale-[1.02] ring-4 ring-orange-500/20 text-white'
-                  : 'bg-slate-800/40 border-slate-700/50 text-slate-300 hover:border-orange-500/50 hover:bg-slate-800/70 hover:scale-[1.01]'
+                  ? 'bg-gradient-to-br from-slate-900 to-orange-950/80 border-orange-500 shadow-2xl shadow-orange-500/30 scale-[1.04] ring-4 ring-orange-500/30 text-white'
+                  : 'bg-slate-950/50 border-orange-900/35 text-slate-300 hover:border-orange-500/60 hover:bg-slate-900/80 hover:scale-[1.02] opacity-85 hover:opacity-100'
               }`}
               id="tab-select-hse"
             >
               {/* Highlight ribbon indicator */}
-              <div className={`absolute top-0 right-1/2 translate-x-1/2 sm:translate-x-0 sm:right-6 -translate-y-1/2 text-[9px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-widest transition-all ${
-                activeTab === 'hse' ? 'bg-orange-500 text-white shadow-md' : 'bg-slate-700 text-slate-300 group-hover:bg-orange-500 group-hover:text-white'
+              <div className={`absolute top-0 right-1/2 translate-x-1/2 sm:translate-x-0 sm:right-6 -translate-y-1/2 text-[10px] font-extrabold px-3 py-1.5 rounded-full uppercase tracking-widest transition-all shadow-lg ${
+                activeTab === 'hse' ? 'bg-orange-500 text-white' : 'bg-orange-950/80 border border-orange-900/60 text-orange-400 group-hover:bg-orange-500 group-hover:text-white'
               }`}>
-                إدارة الأمان والسلامة
+                إدارة الأمان والسلامة (HSE)
               </div>
 
-              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 mt-2 w-full">
-                <div className={`p-3 rounded-xl transition-all duration-300 ${
-                  activeTab === 'hse' ? 'bg-orange-500 text-white rotate-6' : 'bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-orange-400'
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 mt-3 w-full">
+                <div className={`p-3.5 rounded-xl transition-all duration-300 ${
+                  activeTab === 'hse' ? 'bg-orange-500 text-white rotate-6 scale-110 shadow-lg shadow-orange-500/30' : 'bg-slate-800 text-orange-400 border border-orange-900/30 group-hover:bg-orange-500/20'
                 }`}>
-                  <Shield className="w-6 h-6 shrink-0 animate-pulse" />
+                  <Shield className="w-7 h-7 shrink-0 animate-pulse" />
                 </div>
                 <div className="text-center sm:text-right flex-1">
-                  <h4 className={`text-base md:text-lg font-black transition-all ${
+                  <h4 className={`text-lg md:text-xl font-black transition-all ${
                     activeTab === 'hse' ? 'text-orange-400' : 'text-slate-200 group-hover:text-orange-400'
                   }`}>
                     أخصائي صحة وسلامة وبيئة (HSE)
                   </h4>
-                  <p className="text-xs text-slate-400 mt-1 font-light leading-relaxed">
-                    تأمين بيئة عمل آمنة، خالية من المخاطر الكيميائية والحرائق الصناعية.
+                  <p className="text-xs text-slate-400 mt-2 font-light leading-relaxed">
+                    تأمين بيئة عمل آمنة، خالية من المخاطر الكيميائية والحرائق الصناعية وإدارة الطوارئ في المصنع.
                   </p>
-                  <div className="mt-3 flex items-center justify-center sm:justify-start gap-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-700 text-slate-300 rounded-md">دوام كامل</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-500/10 text-orange-400 rounded-md">راتب حتى 6000 ريال</span>
+                  <div className="mt-4 flex items-center justify-center sm:justify-start gap-2">
+                    <span className="text-[10px] font-bold px-2.5 py-1 bg-slate-800 text-slate-300 rounded-md border border-slate-700">دوام كامل</span>
+                    <span className="text-[10px] font-bold px-2.5 py-1 bg-orange-500/20 text-orange-400 rounded-md border border-orange-500/30">راتب حتى 6000 ريال</span>
                   </div>
                 </div>
               </div>
@@ -75,38 +75,38 @@ export default function Home({ onStartApply, onGoToAdmin }: HomeProps) {
             {/* Marketing Job Option */}
             <button
               onClick={() => setActiveTab('marketing')}
-              className={`group relative flex flex-col items-center sm:items-start text-right p-5 rounded-2xl border-2 transition-all duration-300 ${
+              className={`group relative flex flex-col items-center sm:items-start text-right p-6 rounded-2xl border-3 transition-all duration-300 cursor-pointer ${
                 activeTab === 'marketing'
-                  ? 'bg-slate-800/90 border-blue-500 shadow-xl shadow-blue-500/10 scale-[1.02] ring-4 ring-blue-500/20 text-white'
-                  : 'bg-slate-800/40 border-slate-700/50 text-slate-300 hover:border-blue-500/50 hover:bg-slate-800/70 hover:scale-[1.01]'
+                  ? 'bg-gradient-to-br from-slate-900 to-blue-950/80 border-blue-500 shadow-2xl shadow-blue-500/30 scale-[1.04] ring-4 ring-blue-500/30 text-white'
+                  : 'bg-slate-950/50 border-blue-900/35 text-slate-300 hover:border-blue-500/60 hover:bg-slate-900/80 hover:scale-[1.02] opacity-85 hover:opacity-100'
               }`}
               id="tab-select-marketing"
             >
               {/* Highlight ribbon indicator */}
-              <div className={`absolute top-0 right-1/2 translate-x-1/2 sm:translate-x-0 sm:right-6 -translate-y-1/2 text-[9px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-widest transition-all ${
-                activeTab === 'marketing' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-700 text-slate-300 group-hover:bg-blue-600 group-hover:text-white'
+              <div className={`absolute top-0 right-1/2 translate-x-1/2 sm:translate-x-0 sm:right-6 -translate-y-1/2 text-[10px] font-extrabold px-3 py-1.5 rounded-full uppercase tracking-widest transition-all shadow-lg ${
+                activeTab === 'marketing' ? 'bg-blue-600 text-white' : 'bg-blue-950/80 border border-blue-900/60 text-blue-400 group-hover:bg-blue-600 group-hover:text-white'
               }`}>
                 إدارة التسويق والهوية الرقمية
               </div>
 
-              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 mt-2 w-full">
-                <div className={`p-3 rounded-xl transition-all duration-300 ${
-                  activeTab === 'marketing' ? 'bg-blue-600 text-white -rotate-6' : 'bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-blue-400'
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 mt-3 w-full">
+                <div className={`p-3.5 rounded-xl transition-all duration-300 ${
+                  activeTab === 'marketing' ? 'bg-blue-600 text-white -rotate-6 scale-110 shadow-lg shadow-blue-500/30' : 'bg-slate-800 text-blue-400 border border-blue-900/30 group-hover:bg-blue-600/20'
                 }`}>
-                  <Megaphone className="w-6 h-6 shrink-0" />
+                  <Megaphone className="w-7 h-7 shrink-0" />
                 </div>
                 <div className="text-center sm:text-right flex-1">
-                  <h4 className={`text-base md:text-lg font-black transition-all ${
+                  <h4 className={`text-lg md:text-xl font-black transition-all ${
                     activeTab === 'marketing' ? 'text-blue-400' : 'text-slate-200 group-hover:text-blue-400'
                   }`}>
                     أخصائي تسويق (Marketing)
                   </h4>
-                  <p className="text-xs text-slate-400 mt-1 font-light leading-relaxed">
-                    إدارة الحملات الرقمية، صناعة المحتوى، والاعتمادات الرسمية لدى الجهات.
+                  <p className="text-xs text-slate-400 mt-2 font-light leading-relaxed">
+                    إدارة الحملات الرقمية، صناعة المحتوى الإبداعي، والاعتمادات الرسمية لدى الجهات الحكومية والخاصة.
                   </p>
-                  <div className="mt-3 flex items-center justify-center sm:justify-start gap-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-700 text-slate-300 rounded-md">دوام كامل</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-md">راتب 5500 ريال</span>
+                  <div className="mt-4 flex items-center justify-center sm:justify-start gap-2">
+                    <span className="text-[10px] font-bold px-2.5 py-1 bg-slate-800 text-slate-300 rounded-md border border-slate-700">دوام كامل</span>
+                    <span className="text-[10px] font-bold px-2.5 py-1 bg-blue-500/20 text-blue-400 rounded-md border border-blue-500/30">راتب 5500 ريال</span>
                   </div>
                 </div>
               </div>

@@ -622,199 +622,109 @@ async function evaluateApplicantWithAi(applicant: Applicant): Promise<AiEvaluati
   const certCount = Object.values(applicant.certificates).filter(Boolean).length;
   const isMarketing = applicant.personalInfo.jobRole === 'marketing';
 
-  if (!ai) {
-    console.warn("Using high-fidelity simulated AI evaluation due to missing GEMINI_API_KEY.");
-    
+  // Fallback / Helper for Evaluation Logic
+  const getFallback = (): AiEvaluation => {
     if (isMarketing) {
-      let score = 50 + Math.min(applicant.personalInfo.experienceYears * 4, 25);
-      if (answersLength > 1500) score += 15;
-      else if (answersLength > 800) score += 8;
-      
-      if (hasPaintExp) score += 10;
-      score = Math.min(Math.max(score, 30), 100);
-
-      let rec: "suitable" | "suitable_after_interview" | "unsuitable" = "suitable_after_interview";
-      let reason = "المرشح يظهر فهماً جيداً لأساليب التسويق وإدارة العلامات التجارية الرقمية، ونوصي بمقابلة شخصية لمناقشة أفكاره الإبداعية وعرض أعماله السابقة بشكل مفصل.";
-      
-      if (score >= 85) {
-        rec = "suitable";
-        reason = "المرشح متميز للغاية في مجال التسويق وإدارة العلامة التجارية ولديه خبرة قيمة وسجل حافل من الحملات الناجحة ومعرض أعمال غني بالأفكار والنتائج الإبداعية الملموسة.";
-      } else if (score < 60) {
-        rec = "unsuitable";
-        reason = "المرشح يفتقر للخبرة الكافية في التسويق المتكامل أو بناء الهوية الرقمية، وإجاباته على الأسئلة المقالية تظهر مهارات محدودة وغير مطابقة للمستوى المطلوب لوظيفة أخصائي تسويق.";
-      }
-
+      let score = Math.min(Math.max(50 + applicant.personalInfo.experienceYears * 4 + (hasPaintExp ? 10 : 0) + (answersLength > 1000 ? 15 : 0), 30), 100);
       return {
         score,
         paintChemicalExpLevel: hasPaintExp ? "high" : "none",
         strengths: [
-          `خبرة عملية إجمالية قدرها ${applicant.personalInfo.experienceYears} سنوات في التسويق وصناعة المحتوى.`,
-          applicant.personalInfo.portfolioBase64 ? "قام بتقديم ورفع ملف عينة من الأعمال السابقة (بورتفوليو) بجودة عالية." : "لديه مهارات جيدة في استخدام الأدوات والتطبيقات الإعلانية وصناعة العلامة التجارية.",
-          applicant.industryExperience.workedInPaint ? "لديه فهم ممتاز لكيفية التسويق والترويج لمنتجات الدهانات والمواد الإنشائية الكيميائية B2B/B2C." : "يمتلك معرفة جيدة بإدارة الهوية الرقمية وإعداد الخطط التسويقية المبتكرة."
+          `خبرة ${applicant.personalInfo.experienceYears} سنوات في التسويق وصناعة المحتوى.`,
+          "فهم جيد لإدارة العلامة التجارية والتسويق الرقمي."
         ],
         weaknesses: [
-          score < 75 ? "قد يحتاج لتطوير مهارات تحليل البيانات العميقة ومؤشرات الأداء التسويقية الحساسة." : "قد يتطلب تكييف استراتيجياته لتلائم قطاع الصناعة المباشرة (B2B).",
-          "نوصي بطلب تقديم تفاصيل إضافية عن معدل التحويل والعائد على الاستثمار للحملات السابقة."
+          "قد يحتاج لتعزيز مهارات تحليل البيانات العميقة ومؤشرات الأداء."
         ],
         suggestedQuestions: [
-          "كيف تخطط لبناء هوية تسويقية مميزة لمنتج دهانات جديد لمنافسة الأسماء العريقة في السوق؟",
-          "ما هي الاستراتيجية الأفضل من وجهة نظرك لجذب عملاء B2B (شركات المقاولات والمشاريع) مقارنة بالمستهلك النهائي (B2C)؟",
-          "حدثنا عن مشروع تسويقي واجهت فيه ميزانية محدودة للغاية، وكيف تمكنت من تحقيق نتائج عالية؟"
+          "كيف تخطط لبناء هوية تسويقية مميزة لمنتجات الدهانات لمنافسة الأسماء العريقة؟",
+          "كيف تتعامل مع ميزانية تسويقية محدودة لتحقيق أعلى عائد استثماري؟",
+          "حدثنا عن بورتفوليو أعمالك وأبرز الحملات التي قمت بإدارتها."
         ],
-        recommendation: rec,
-        recommendationReason: reason,
+        recommendation: score >= 80 ? "suitable" : score >= 60 ? "suitable_after_interview" : "unsuitable",
+        recommendationReason: "تم التقييم بناءً على الخبرة في التسويق والملف الشخصي والأسئلة المقالية المصممة لوظيفة أخصائي التسويق دون أي خلط مع السلامة المهنية.",
         evaluatedAt: new Date().toISOString()
       };
     } else {
-      let score = 50 + Math.min(certCount * 3, 20) + Math.min(applicant.personalInfo.experienceYears * 3, 20);
-      if (answersLength > 1500) score += 10;
-      else if (answersLength > 800) score += 5;
-      
-      if (hasPaintExp) score += 10;
-      if (hasChemicalExp) score += 10;
-      score = Math.min(Math.max(score, 30), 100);
-
-      let rec: "suitable" | "suitable_after_interview" | "unsuitable" = "suitable_after_interview";
-      let reason = "المرشح لديه مؤهلات جيدة وخبرة مناسبة بقطاع المصانع، لكن نوصي بمقابلة شخصية للتأكد من مهاراته الميدانية والقيادية.";
-      
-      if (score >= 85) {
-        rec = "suitable";
-        reason = "المرشح ممتاز ويتمتع بخبرة واسعة ومخصصة في مصانع الدهانات والمواد الكيميائية ولديه معرفة فنية عالية جداً بسلامة العمليات والوقاية من الانفجارات وشحنات الكهرباء الساكنة.";
-      } else if (score < 60) {
-        rec = "unsuitable";
-        reason = "المرشح لا يمتلك الخبرة الكافية في القطاع أو المعرفة الكافية بإجراءات السلامة ومكافحة الانسكابات.";
-      }
-
+      let score = Math.min(Math.max(50 + certCount * 4 + applicant.personalInfo.experienceYears * 3 + (hasPaintExp ? 10 : 0) + (hasChemicalExp ? 10 : 0), 30), 100);
       return {
         score,
         paintChemicalExpLevel: hasPaintExp && hasChemicalExp ? "high" : hasPaintExp || hasChemicalExp ? "medium" : "low",
         strengths: [
-          `خبرة عملية إجمالية قدرها ${applicant.personalInfo.experienceYears} سنوات في مجال السلامة والصحة المهنية.`,
-          `يمتلك ${certCount} شهادات ودورات تدريبية متخصصة في الأمن والسلامة.`,
-          applicant.industryExperience.workedInPaint ? "لديه خبرة مباشرة في التعامل مع المخاطر الخاصة بمصانع الدهانات والمذيبات." : "لديه معرفة جيدة بأساسيات الأمن والسلامة الصناعية العامة."
+          `خبرة ${applicant.personalInfo.experienceYears} سنوات في الأمن والسلامة المهنية.`,
+          `يمتلك ${certCount} شهادات ودورات تخصصية في السلامة والصحة.`
         ],
         weaknesses: [
-          score < 75 ? "بحاجة لتعزيز معرفته بالأنظمة والمعايير الدولية للسلامة والصحة المهنية مثل الأوشا (OSHA)." : "نقاط الضعف الفنية تكاد تكون منعدمة ويفضل التركيز على تقييم المهارات السلوكية والقيادية.",
-          "نوصي بالتحقق من مدى إلمامه الميداني بسلامة العمليات المعقدة في مصانع الدهانات."
+          "بحاجة لتعزيز الإلمام العملي بسلامة العمليات المعقدة والوقاية من الانفجارات الكيميائية."
         ],
         suggestedQuestions: [
           "كيف تتعامل مع انسكاب كيميائي مفاجئ لمادة قابلة للاشتعال في قسم الإنتاج؟",
-          "اذكر موقفاً واجهت فيه رفضاً من بعض العمال لارتداء معدات الوقاية الشخصية، وكيف تصرفت حيال ذلك؟",
-          "ما هي أهم النقاط التي ستركز عليها في جولتك التفتيشية اليومية الأولى في مصنعنا؟"
+          "ما هي الإجراءات اليومية التي تركز عليها لتأمين خط خلط الدهانات؟",
+          "كيف تتعامل مع فني يرفض ارتداء معدات الوقاية الشخصية؟"
         ],
-        recommendation: rec,
-        recommendationReason: reason,
+        recommendation: score >= 80 ? "suitable" : score >= 60 ? "suitable_after_interview" : "unsuitable",
+        recommendationReason: "تم التقييم بناءً على معايير الأمن والسلامة المهنية وخبرة المرشح في حماية المنشآت الصناعية الكيميائية.",
         evaluatedAt: new Date().toISOString()
       };
     }
+  };
+
+  if (!ai) {
+    console.warn("Using high-fidelity simulated AI evaluation due to missing GEMINI_API_KEY.");
+    return getFallback();
   }
 
-  // Build the prompt for real Gemini evaluation
+  // Real Gemini evaluation
   let prompt = "";
   if (isMarketing) {
     prompt = `
-أنت خبير تقييم ومقابلات فنية في قطاع التسويق وإدارة العلامات التجارية، مخصص لتقييم المتقدمين لوظيفة "أخصائي تسويق" في مصنع دهانات رائد ومواد كيميائية إنشائية.
-قم بتحليل بيانات المرشح وإجاباته الفنية والتسويقية بدقة كاملة، وأعط تقييماً تفصيلياً باللغة العربية الفصحى.
+أنت خبير فني في تقييم المتقدمين لوظيفة "أخصائي تسويق" لمصنع دهانات ومواد إنشائية.
+تنبيه صارم: لا تقم بتقييم أو مقارنة هذا المرشح بمتطلبات الأمن والسلامة المهنية (HSE). لا تطلب شهادات سلامة (مثل نيبوش أو أوشا) أو معرفة بالحرائق الكيميائية. ركز بالكامل على المهارات التسويقية وبناء الهوية الرقمية وصناعة المحتوى والاعتمادات.
 
 بيانات المرشح:
-الاسم الكامل: \${applicant.personalInfo.fullName}
-المؤهل العلمي والتخصص: \${applicant.personalInfo.qualification} - \${applicant.personalInfo.major}
-سنوات الخبرة: \${applicant.personalInfo.experienceYears} سنة
-الشركة الحالية والدور الحالي: \${applicant.personalInfo.currentCompany} - \${applicant.personalInfo.currentRole}
+الاسم: ${applicant.personalInfo.fullName}
+المؤهل: ${applicant.personalInfo.qualification} - ${applicant.personalInfo.major}
+الخبرة: ${applicant.personalInfo.experienceYears} سنة
 
-الخبرات الصناعية التخصصية:
-- هل عمل في مصنع دهانات؟ \${applicant.industryExperience.workedInPaint ? \`نعم، شركة: \${applicant.industryExperience.paintCompany}، سنوات: \${applicant.industryExperience.paintYears}، دور: \${applicant.industryExperience.paintRole}، مهام: \${applicant.industryExperience.paintTasks}\` : 'لا'}
-- هل عمل في مصنع كيميائي أو تسويق؟ \${applicant.industryExperience.workedInChemical ? \`نعم، شركة: \${applicant.industryExperience.chemicalCompany}• سنوات: \${applicant.industryExperience.chemicalYears}• دور: \${applicant.industryExperience.chemicalRole}• مهام: \${applicant.industryExperience.chemicalTasks}\` : 'لا'}
-- هل عمل في منشأة صناعية عامة؟ \${applicant.industryExperience.workedInIndustrial ? \`نعم، شركة: \${applicant.industryExperience.industrialCompany}، سنوات: \${applicant.industryExperience.industrialYears}، دور: \${applicant.industryExperience.industrialRole}، مهام: \${applicant.industryExperience.industrialTasks}\` : 'لا'}
+إجابات اختبار التسويق (10 أسئلة):
+1. الحملات التسويقية السابقة: ${applicant.examAnswers.q1_paint_risks || 'لم تجب'}
+2. إدارة الهوية الرقمية: ${applicant.examAnswers.q2_hazard_vs_risk || 'لم تجب'}
+3. تسجيل واعتمادات الشركات: ${applicant.examAnswers.q3_incident_investigation || 'لم تجب'}
+4. تحليل البيانات ومؤشرات الأداء: ${applicant.examAnswers.q4_risk_assessment || 'لم تجب'}
+5. مشاريع تسويقية سابقة: ${applicant.examAnswers.q5_ppe_chemical || 'لم تجب'}
+6. رابط معرض الأعمال (Portfolio): ${applicant.examAnswers.q6_sds_msds || 'لم تجب'}
+7. الأدوات والتطبيقات الإعلانية: ${applicant.examAnswers.q7_flammable_spill || 'لم تجب'}
+8. التعامل مع ميزانية محدودة: ${applicant.examAnswers.q8_ppe_refusal || 'لم تجب'}
+9. استراتيجية تسويق قطاع الدهانات: ${applicant.examAnswers.q9_daily_inspection || 'لم تجب'}
+10. وصف عينة الأعمال المرفقة: ${applicant.examAnswers.q10_safety_project || 'لم تجب'}
 
-الشهادات المهنية والتسويقية التي يمتلكها:
-\${Object.entries(applicant.certificates).filter(([_, has]) => has).map(([name]) => name.toUpperCase()).join(", ")}
-
-إجابات الاختبار الفني والتسويقي (المكون من 10 أسئلة مقالية):
-السؤال 1- ما هي أبرز الحملات التسويقية التي قمت بتخطيطها وإدارتها سابقاً؟
-إجابة المرشح: \${applicant.examAnswers.q1_paint_risks}
-
-السؤال 2- كيف تدير الهوية الرقمية للعلامة التجارية وتصنع المحتوى الإبداعي؟
-إجابة المرشح: \${applicant.examAnswers.q2_hazard_vs_risk}
-
-السؤال 3- ما هي خبرتك بالتفصيل في تسجيل واعتماد الشركات لدى منصات الموردين الرسمية والجهات التنظيمية؟
-إجابة المرشح: \${applicant.examAnswers.q3_incident_investigation}
-
-السؤال 4- كيف توظف أدوات تحليل البيانات ومؤشرات الأداء (KPIs) لتطوير خطتك التسويقية؟
-إجابة المرشح: \${applicant.examAnswers.q4_risk_assessment}
-
-السؤال 5- اذكر بالتفصيل "أعمالاً ومشاريع تسويقية تم تنفيذها" ودورك الدقيق والإبداعي فيها.
-إجابة المرشح: \${applicant.examAnswers.q5_ppe_chemical}
-
-السؤال 6- يرجى تزويدنا بروابط أعمالك السابقة أو معرض أعمالك الرقمي (Portfolio) - [أعمال تم تنفيذها].
-إجابة المرشح: \${applicant.examAnswers.q6_sds_msds}
-
-السؤال 7- ما هي الأدوات والمنصات الإعلانية وتطبيقات التصميم ومونتاج الفيديو التي تتقن العمل عليها باحترافية؟
-إجابة المرشح: \${applicant.examAnswers.q7_flammable_spill}
-
-السؤال 8- كيف تتعامل مع ميزانيات التسويق المحدودة لتحقيق أقصى فاعلية وأعلى معدل تحويل للعملاء؟
-إجابة المرشح: \${applicant.examAnswers.q8_ppe_refusal}
-
-السؤال 9- كيف تصمم وتنفذ استراتيجية تسويق لمنتجات مصانع الدهانات والمعاجين (قطاع صناعي B2B و B2C)؟
-إجابة المرشح: \${applicant.examAnswers.q9_daily_inspection}
-
-السؤال 10- يرجى تزويدنا بوصف وملخص لملف "عينة من أعمالك السابقة" التي ستقوم برفعها كملف مرفق أدناه.
-إجابة المرشح: \${applicant.examAnswers.q10_safety_project}
-
-قم بإرجاع التقييم على شكل كائن JSON متوافق تماماً مع المخطط (Schema) التالي، مع ضمان كتابة جميع النصوص والتحليلات باللغة العربية الفصحى وبأسلوب فني راق واحترافي.
+قم بإرجاع التقييم كـ JSON متوافق مع المخطط (Schema) المعطى، باللغة العربية الفصحى.
 `;
   } else {
     prompt = `
-أنت خبير تقييم ومقابلات فنية في الصحة والسلامة والبيئة (HSE) مخصص لتقييم المتقدمين لوظيفة "أخصائي أمن وسلامة" في مصنع دهانات ومواد كيميائية.
-قم بتحليل بيانات المرشح وإجاباته الفنية بدقة كاملة، وأعط تقييماً تفصيلياً باللغة العربية الفصحى.
+أنت خبير فني في تقييم المتقدمين لوظيفة "أخصائي صحة وسلامة مهنية (HSE)" لمصنع دهانات ومواد كيميائية.
+قم بتحليل بيانات المرشح وإجاباته الفنية بدقة كاملة.
 
 بيانات المرشح:
-الاسم الكامل: \${applicant.personalInfo.fullName}
-المؤهل العلمي والتخصص: \${applicant.personalInfo.qualification} - \${applicant.personalInfo.major}
-سنوات الخبرة: \${applicant.personalInfo.experienceYears} سنة
-الشركة الحالية والدور الحالي: \${applicant.personalInfo.currentCompany} - \${applicant.personalInfo.currentRole}
+الاسم: ${applicant.personalInfo.fullName}
+المؤهل: ${applicant.personalInfo.qualification} - ${applicant.personalInfo.major}
+الخبرة: ${applicant.personalInfo.experienceYears} سنة
+الشهادات: ${Object.entries(applicant.certificates).filter(([_, has]) => has).map(([n]) => n.toUpperCase()).join(", ")}
 
-الخبرات الصناعية التخصصية:
-- هل عمل في مصنع دهانات؟ \${applicant.industryExperience.workedInPaint ? \`نعم، شركة: \${applicant.industryExperience.paintCompany}، سنوات: \${applicant.industryExperience.paintYears}، دور: \${applicant.industryExperience.paintRole}، مهام: \${applicant.industryExperience.paintTasks}\` : 'لا'}
-- هل عمل في مصنع كيميائي؟ \${applicant.industryExperience.workedInChemical ? \`نعم، شركة: \${applicant.industryExperience.chemicalCompany}، سنوات: \${applicant.industryExperience.chemicalYears}، دور: \${applicant.industryExperience.chemicalRole}• مهام: \${applicant.industryExperience.chemicalTasks}\` : 'لا'}
-- هل عمل في منشأة صناعية؟ \${applicant.industryExperience.workedInIndustrial ? \`نعم، شركة: \${applicant.industryExperience.industrialCompany}، سنوات: \${applicant.industryExperience.industrialYears}، دور: \${applicant.industryExperience.industrialRole}، مهام: \${applicant.industryExperience.industrialTasks}\` : 'لا'}
+إجابات اختبار السلامة والصحة المهنية (10 أسئلة):
+1. مخاطر مصانع الدهانات: ${applicant.examAnswers.q1_paint_risks || 'لم تجب'}
+2. الفرق بين الخطر والمخاطرة: ${applicant.examAnswers.q2_hazard_vs_risk || 'لم تجب'}
+3. التحقيق في حوادث العمل: ${applicant.examAnswers.q3_incident_investigation || 'لم تجب'}
+4. إعداد تقييم مخاطر: ${applicant.examAnswers.q4_risk_assessment || 'لم تجب'}
+5. معدات الوقاية الشخصية للمواد الكيميائية: ${applicant.examAnswers.q5_ppe_chemical || 'لم تجب'}
+6. صحيفة بيانات سلامة المادة SDS: ${applicant.examAnswers.q6_sds_msds || 'لم تجب'}
+7. التعامل مع انسكاب كيميائي قابل للاشتعال: ${applicant.examAnswers.q7_flammable_spill || 'لم تجب'}
+8. التعامل مع عامل يرفض ارتداء الـ PPE: ${applicant.examAnswers.q8_ppe_refusal || 'لم تجب'}
+9. جولة تفتيشية يومية: ${applicant.examAnswers.q9_daily_inspection || 'لم تجب'}
+10. مشروع أو مبادرة تحسين السلامة: ${applicant.examAnswers.q10_safety_project || 'لم تجب'}
 
-الشهادات المهنية التي يمتلكها:
-\${Object.entries(applicant.certificates).filter(([_, has]) => has).map(([name]) => name.toUpperCase()).join(", ")}
-
-إجابات الاختبار الفني (المكون من 10 أسئلة مقالية):
-السؤال 1- ما أهم المخاطر داخل مصانع الدهانات؟
-إجابة المرشح: \${applicant.examAnswers.q1_paint_risks}
-
-السؤال 2- ما الفرق بين الخطر والمخاطرة؟
-إجابة المرشح: \${applicant.examAnswers.q2_hazard_vs_risk}
-
-السؤال 3- كيف تحقق في حادث عمل؟
-إجابة المرشح: \${applicant.examAnswers.q3_incident_investigation}
-
-السؤال 4- كيف تقوم بإعداد تقييم مخاطر؟
-إجابة المرشح: \${applicant.examAnswers.q4_risk_assessment}
-
-السؤال 5- ما معدات الوقاية الشخصية المطلوبة عند التعامل مع المواد الكيميائية؟
-إجابة المرشح: \${applicant.examAnswers.q5_ppe_chemical}
-
-السؤال 6- ما هي SDS أو MSDS وما أهميتها؟
-إجابة المرشح: \${applicant.examAnswers.q6_sds_msds}
-
-السؤال 7- ماذا ستفعل عند حدوث انسكاب لمادة كيميائية قابلة للاشتعال؟
-إجابة المرشح: \${applicant.examAnswers.q7_flammable_spill}
-
-السؤال 8- كيف تتعامل مع موظف يرفض ارتداء معدات الوقاية الشخصية؟
-إجابة المرشح: \${applicant.examAnswers.q8_ppe_refusal}
-
-السؤال 9- ما أهم النقاط التي يجب فحصها أثناء الجولة التفتيشية اليومية؟
-إجابة المرشح: \${applicant.examAnswers.q9_daily_inspection}
-
-السؤال 10- اذكر مشروعًا أو تحسينًا في السلامة سبق أن شاركت فيه.
-إجابة المرشح: \${applicant.examAnswers.q10_safety_project}
-
-قم بإرجاع التقييم على شكل كائن JSON متوافق تماماً مع المخطط (Schema) التالي، مع ضمان كتابة جميع النصوص والتحليلات باللغة العربية الفصحى وبأسلوب فني راق واحترافي.
-  `;
+قم بإرجاع التقييم كـ JSON متوافق مع المخطط (Schema) المعطى، باللغة العربية الفصحى.
+`;
   }
 
   try {
@@ -827,37 +737,13 @@ async function evaluateApplicantWithAi(applicant: Applicant): Promise<AiEvaluati
           type: Type.OBJECT,
           required: ["score", "paintChemicalExpLevel", "strengths", "weaknesses", "suggestedQuestions", "recommendation", "recommendationReason"],
           properties: {
-            score: {
-              type: Type.INTEGER,
-              description: "الدرجة النهائية الفنية للمرشح من 100 بناءً على صحة وعمق إجاباته وخبراته وشهاداته."
-            },
-            paintChemicalExpLevel: {
-              type: Type.STRING,
-              description: "مستوى خبرة المرشح في مصانع الدهانات والمواد الكيميائية. يجب أن يكون أحد القيم التالية: 'high' أو 'medium' أو 'low' أو 'none'."
-            },
-            strengths: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "قائمة بنقاط القوة الرئيسية المكتشفة في خلفية وخبرة وإجابات المرشح (3-5 نقاط)."
-            },
-            weaknesses: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "قائمة بنقاط الضعف أو جوانب النقص الفنية الملاحظة لدى المرشح (2-4 نقاط)."
-            },
-            suggestedQuestions: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "3 أسئلة مخصصة وموجهة ومبنية على ملف المرشح لطرحها عليه في المقابلة الشخصية."
-            },
-            recommendation: {
-              type: Type.STRING,
-              description: "التوصية الفنية للمرشح. يجب أن تكون واحدة من: 'suitable' (مناسب) أو 'suitable_after_interview' (مناسب بعد المقابلة) أو 'unsuitable' (غير مناسب)."
-            },
-            recommendationReason: {
-              type: Type.STRING,
-              description: "تفسير مفصل ومهني يبرر سبب هذه التوصية الفنية ومدى ملاءمة المرشح لمصنع الدهانات."
-            }
+            score: { type: Type.INTEGER, description: "الدرجة النهائية الفنية للمرشح من 100 بناءً على إجاباته وخبراته." },
+            paintChemicalExpLevel: { type: Type.STRING, description: "مستوى خبرة المرشح في مصانع الدهانات والمواد الكيميائية: 'high' أو 'medium' أو 'low' أو 'none'." },
+            strengths: { type: Type.ARRAY, items: { type: Type.STRING }, description: "نقاط القوة الرئيسية (3-5 نقاط)." },
+            weaknesses: { type: Type.ARRAY, items: { type: Type.STRING }, description: "نقاط الضعف الملاحظة (2-4 نقاط)." },
+            suggestedQuestions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 أسئلة مخصصة للمقابلة الشخصية." },
+            recommendation: { type: Type.STRING, description: "التوصية: 'suitable' أو 'suitable_after_interview' أو 'unsuitable'." },
+            recommendationReason: { type: Type.STRING, description: "تفسير مبرر ومفصل للتوصية باللغة العربية." }
           }
         }
       }
@@ -868,88 +754,9 @@ async function evaluateApplicantWithAi(applicant: Applicant): Promise<AiEvaluati
     const evaluation = JSON.parse(cleanJson) as AiEvaluation;
     evaluation.evaluatedAt = new Date().toISOString();
     return evaluation;
-
   } catch (error) {
     console.error("Error in Gemini evaluation API:", error);
-    // If anything fails or throws, return fallback evaluation matching role
-    if (isMarketing) {
-      let score = 50 + Math.min(applicant.personalInfo.experienceYears * 4, 25);
-      if (answersLength > 1500) score += 15;
-      else if (answersLength > 800) score += 8;
-      if (hasPaintExp) score += 10;
-      score = Math.min(Math.max(score, 30), 100);
-
-      let rec: "suitable" | "suitable_after_interview" | "unsuitable" = "suitable_after_interview";
-      let reason = "المرشح يظهر فهماً جيداً لأساليب التسويق وإدارة العلامات التجارية الرقمية، ونوصي بمقابلة شخصية لمناقشة أفكاره الإبداعية وعرض أعماله السابقة بشكل مفصل.";
-      if (score >= 85) {
-        rec = "suitable";
-        reason = "المرشح متميز للغاية في مجال التسويق وإدارة العلامة التجارية ولديه خبرة قيمة وسجل حافل من الحملات الناجحة ومعرض أعمال غني بالأفكار والنتائج الإبداعية الملموسة.";
-      } else if (score < 60) {
-        rec = "unsuitable";
-        reason = "المرشح يفتقر للخبرة الكافية في التسويق المتكامل أو بناء الهوية الرقمية، وإجاباته على الأسئلة المقالية تظهر مهارات محدودة وغير مطابقة للمستوى المطلوب لوظيفة أخصائي تسويق.";
-      }
-
-      return {
-        score,
-        paintChemicalExpLevel: hasPaintExp ? "high" : "none",
-        strengths: [
-          `خبرة عملية إجمالية قدرها ${applicant.personalInfo.experienceYears} سنوات في التسويق وصناعة المحتوى.`,
-          applicant.personalInfo.portfolioBase64 ? "قام بتقديم ورفع ملف عينة من الأعمال السابقة (بورتفوليو) بجودة عالية." : "لديه مهارات جيدة في استخدام الأدوات والتطبيقات الإعلانية وصناعة العلامة التجارية.",
-          applicant.industryExperience.workedInPaint ? "لديه فهم ممتاز لكيفية التسويق والترويج لمنتجات الدهانات والمواد الإنشائية الكيميائية B2B/B2C." : "يمتلك معرفة جيدة بإدارة الهوية الرقمية وإعداد الخطط التسويقية المبتكرة."
-        ],
-        weaknesses: [
-          score < 75 ? "قد يحتاج لتطوير مهارات تحليل البيانات العميقة ومؤشرات الأداء التسويقية الحساسة." : "قد يتطلب تكييف استراتيجياته لتلائم قطاع الصناعة المباشرة (B2B).",
-          "نوصي بطلب تقديم تفاصيل إضافية عن معدل التحويل والعائد على الاستثمار للحملات السابقة."
-        ],
-        suggestedQuestions: [
-          "كيف تخطط لبناء هوية تسويقية مميزة لمنتج دهانات جديد لمنافسة الأسماء العريقة في السوق؟",
-          "ما هي الاستراتيجية الأفضل من وجهة نظرك لجذب عملاء B2B (شركات المقاولات والمشاريع) مقارنة بالمستهلك النهائي (B2C)؟",
-          "حدثنا عن مشروع تسويقي واجهت فيه ميزانية محدودة للغاية، وكيف تمكنت من تحقيق نتائج عالية؟"
-        ],
-        recommendation: rec,
-        recommendationReason: reason,
-        evaluatedAt: new Date().toISOString()
-      };
-    }
-
-    let score = 50 + Math.min(certCount * 3, 20) + Math.min(applicant.personalInfo.experienceYears * 3, 20);
-    if (answersLength > 1500) score += 10;
-    else if (answersLength > 800) score += 5;
-    if (hasPaintExp) score += 10;
-    if (hasChemicalExp) score += 10;
-    score = Math.min(Math.max(score, 30), 100);
-
-    let rec: "suitable" | "suitable_after_interview" | "unsuitable" = "suitable_after_interview";
-    let reason = "المرشح لديه مؤهلات جيدة وخبرة مناسبة بقطاع المصانع، لكن نوصي بمقابلة شخصية للتأكد من مهاراته الميدانية والقيادية.";
-    if (score >= 85) {
-      rec = "suitable";
-      reason = "المرشح ممتاز ويتمتع بخبرة واسعة ومخصصة في مصانع الدهانات والمواد الكيميائية ولديه معرفة فنية عالية جداً بسلامة العمليات والوقاية من الانفجارات وشحنات الكهرباء الساكنة.";
-    } else if (score < 60) {
-      rec = "unsuitable";
-      reason = "المرشح لا يمتلك الخبرة الكافية في القطاع أو المعرفة الكافية بإجراءات السلامة ومكافحة الانسكابات.";
-    }
-
-    return {
-      score,
-      paintChemicalExpLevel: hasPaintExp && hasChemicalExp ? "high" : hasPaintExp || hasChemicalExp ? "medium" : "low",
-      strengths: [
-        `خبرة عملية إجمالية قدرها ${applicant.personalInfo.experienceYears} سنوات في مجال السلامة والصحة المهنية.`,
-        `يمتلك ${certCount} شهادات ودورات تدريبية متخصصة في الأمن والسلامة.`,
-        applicant.industryExperience.workedInPaint ? "لديه خبرة مباشرة في التعامل مع المخاطر الخاصة بمصانع الدهانات والمذيبات." : "لديه معرفة جيدة بأساسيات الأمن والسلامة الصناعية العامة."
-      ],
-      weaknesses: [
-        score < 75 ? "بحاجة لتعزيز معرفته بالأنظمة والمعايير الدولية للسلامة والصحة المهنية مثل الأوشا (OSHA)." : "نقاط الضعف الفنية تكاد تكون منعدمة ويفضل التركيز على تقييم المهارات السلوكية والقيادية.",
-        "نوصي بالتحقق من مدى إلمامه الميداني بسلامة العمليات المعقدة في مصانع الدهانات."
-      ],
-      suggestedQuestions: [
-        "كيف تتعامل مع انسكاب كيميائي مفاجئ لمادة قابلة للاشتعال في قسم الإنتاج؟",
-        "اذكر موقفاً واجهت فيه رفضاً من بعض العمال لارتداء معدات الوقاية الشخصية، وكيف تصرفت حيال ذلك؟",
-        "ما هي أهم النقاط التي ستركز عليها في جولتك التفتيشية اليومية الأولى في مصنعنا؟"
-      ],
-      recommendation: rec,
-      recommendationReason: reason,
-      evaluatedAt: new Date().toISOString()
-    };
+    return getFallback();
   }
 }
 
