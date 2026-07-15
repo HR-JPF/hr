@@ -1120,7 +1120,7 @@ export default function ApplicationForm({ onCancel, onSubmitSuccess, jobRole = '
                         <label className="block text-sm font-bold text-slate-700 mb-2">
                           هل لديك أي مشكلة في العمل بموقع المصنع هذا؟ *
                           <a
-                            href="https://maps.app.goo.gl/1htzCJMahE5mh2AJA"
+                            href="https://maps.app.goo.gl/XuLsfxrUidjELkBD7"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-orange-500 hover:underline text-xs mr-2 font-bold inline-block"

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { safeStorage } from '../lib/safeStorage';
 // GitHub Sync: Minor update to trigger re-push
 import { 
-  Lock, Shield, Users, FileText, CheckCircle, XCircle, Clock, Calendar, 
+  Lock, Shield, Users, FileText, CheckCircle, XCircle, Clock, Calendar, MapPin,
   Search, Filter, Eye, EyeOff, Edit3, Download, Printer, Trash2, ArrowLeft,
   ChevronDown, AlertCircle, Award, Star, ThumbsUp, Save, BarChart2,
   ListFilter, FileSpreadsheet, FileDown, Loader2, Briefcase, FileQuestion,
@@ -72,6 +72,29 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
   const [scheduleType, setScheduleType] = useState('remote');
   const [scheduleMeetingLink, setScheduleMeetingLink] = useState('');
 
+  const [defaultMeetingLink, setDefaultMeetingLink] = useState(() => {
+    try {
+      const saved = safeStorage.getItem('defaultMeetingLink');
+      if (saved) return saved;
+    } catch {}
+    return 'https://meet.google.com/abc-defg-hij';
+  });
+
+  // States for candidate-specific scheduling inside applicant detail view
+  const [detailScheduleDate, setDetailScheduleDate] = useState('');
+  const [detailScheduleTime, setDetailScheduleTime] = useState('');
+  const [detailScheduleType, setDetailScheduleType] = useState('remote');
+  const [detailScheduleMeetingLink, setDetailScheduleMeetingLink] = useState('');
+
+  useEffect(() => {
+    if (selectedApplicant) {
+      setDetailScheduleDate(selectedApplicant.interviewSchedule?.date || '');
+      setDetailScheduleTime(selectedApplicant.interviewSchedule?.time || '');
+      setDetailScheduleType(selectedApplicant.interviewSchedule?.type || 'remote');
+      setDetailScheduleMeetingLink(selectedApplicant.interviewSchedule?.meetingLink || defaultMeetingLink);
+    }
+  }, [selectedApplicant, defaultMeetingLink]);
+
   // Google Meet and Automatic Scheduling states
   const [googleUser, setGoogleUser] = useState<User | null>(null);
   const [googleToken, setGoogleToken] = useState<string | null>(null);
@@ -114,14 +137,6 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
   const getStorageKey = (baseKey: string, role: 'hse' | 'marketing') => {
     return role === 'hse' ? baseKey : `${baseKey}_${role}`;
   };
-
-  const [defaultMeetingLink, setDefaultMeetingLink] = useState(() => {
-    try {
-      const saved = safeStorage.getItem('defaultMeetingLink');
-      if (saved) return saved;
-    } catch {}
-    return 'https://meet.google.com/abc-defg-hij';
-  });
 
   // WhatsApp announcement customization states
   const [announcementAppUrl, setAnnouncementAppUrl] = useState(() => {
@@ -179,9 +194,9 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
   const [announcementLocation, setAnnouncementLocation] = useState(() => {
     try {
       const saved = safeStorage.getItem('announcementLocation');
-      return saved || 'حي الرحاب، جدة';
+      return saved || 'المنطقة الصناعية، جدة';
     } catch {
-      return 'حي الرحاب، جدة';
+      return 'المنطقة الصناعية، جدة';
     }
   });
 
@@ -285,7 +300,7 @@ https://wa.me/966537375580
     setAnnouncementDate(safeStorage.getItem(getStorageKey('announcementDate', settingsJobRole)) || '21/01/1448 هـ');
     setAnnouncementSalary(safeStorage.getItem(getStorageKey('announcementSalary', settingsJobRole)) || '4,500 ريال إلى 6,000 ريال');
     setAnnouncementHours(safeStorage.getItem(getStorageKey('announcementHours', settingsJobRole)) || '9 ساعات يومياً (6 أيام)');
-    setAnnouncementLocation(safeStorage.getItem(getStorageKey('announcementLocation', settingsJobRole)) || (settingsJobRole === 'marketing' ? 'جدة حي الرحاب - https://maps.app.goo.gl/VpghMeUKVdNUF4YT7' : 'حي الرحاب، جدة'));
+    setAnnouncementLocation(safeStorage.getItem(getStorageKey('announcementLocation', settingsJobRole)) || (settingsJobRole === 'marketing' ? 'جدة المدينة الصناعية - https://maps.app.goo.gl/XuLsfxrUidjELkBD7' : 'المنطقة الصناعية، جدة'));
     
     setInterviewTemplate(safeStorage.getItem(getStorageKey('interviewTemplate', settingsJobRole)) || `السلام عليكم ورحمة الله وبركاته، {TITLE} {NAME} المحترم.
 
@@ -1763,6 +1778,150 @@ https://wa.me/966537375580
                 </div>
               </div>
 
+              {/* Candidate-Specific Interview Scheduler */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4 text-right print:hidden">
+                <h4 className="font-extrabold text-slate-900 border-b border-slate-100 pb-3 mb-2 flex items-center gap-1.5 text-sm">
+                  <Calendar className="text-orange-500 w-4 h-4" />
+                  ترتيب وجدولة المقابلة الشخصية للمرشح 🗓️
+                </h4>
+
+                <div className="space-y-3.5">
+                  {/* Date Input */}
+                  <div className="space-y-1">
+                    <label className="text-slate-700 text-[11px] font-bold block">تاريخ المقابلة:</label>
+                    <input
+                      type="date"
+                      value={detailScheduleDate}
+                      onChange={(e) => setDetailScheduleDate(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 outline-none text-xs font-semibold"
+                    />
+                  </div>
+
+                  {/* Time Input */}
+                  <div className="space-y-1">
+                    <label className="text-slate-700 text-[11px] font-bold block">وقت المقابلة:</label>
+                    <input
+                      type="time"
+                      value={detailScheduleTime}
+                      onChange={(e) => setDetailScheduleTime(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 outline-none text-xs font-semibold"
+                    />
+                  </div>
+
+                  {/* Type Input */}
+                  <div className="space-y-1">
+                    <label className="text-slate-700 text-[11px] font-bold block">نوع المقابلة:</label>
+                    <select
+                      value={detailScheduleType}
+                      onChange={(e) => {
+                        const newType = e.target.value;
+                        setDetailScheduleType(newType);
+                        if (newType === 'in_person') {
+                          setDetailScheduleMeetingLink('مقر الشركة بجدة');
+                        } else {
+                          setDetailScheduleMeetingLink(selectedApplicant.interviewSchedule?.meetingLink || defaultMeetingLink);
+                        }
+                      }}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 outline-none text-xs bg-white font-semibold"
+                    >
+                      <option value="remote">🌐 عن بعد (أونلاين)</option>
+                      <option value="in_person">📍 حضوري (بمقر الشركة)</option>
+                    </select>
+                  </div>
+
+                  {/* Meeting Link / Address Input */}
+                  <div className="space-y-1">
+                    <label className="text-slate-700 text-[11px] font-bold block">
+                      {detailScheduleType === 'in_person' ? 'عنوان مقر العمل:' : 'رابط القاعة الافتراضية:'}
+                    </label>
+                    <input
+                      type={detailScheduleType === 'in_person' ? 'text' : 'url'}
+                      value={detailScheduleMeetingLink}
+                      onChange={(e) => setDetailScheduleMeetingLink(e.target.value)}
+                      className={`w-full border border-slate-200 rounded-xl px-3 py-2 outline-none text-xs font-semibold ${detailScheduleType === 'in_person' ? 'text-right' : 'text-left font-mono'}`}
+                      placeholder={detailScheduleType === 'in_person' ? 'مثال: مقر الشركة بجدة' : 'https://meet.google.com/abc-defg-hij'}
+                    />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!detailScheduleDate || !detailScheduleTime) {
+                          alert('الرجاء تحديد التاريخ والوقت أولاً.');
+                          return;
+                        }
+                        await handleSaveSchedule(
+                          selectedApplicant,
+                          selectedApplicant.personalInfo.fullName,
+                          detailScheduleDate,
+                          detailScheduleTime,
+                          detailScheduleType,
+                          detailScheduleMeetingLink
+                        );
+                        // Refresh the local details by updating selectedApplicant inside the current view
+                        setSelectedApplicant({
+                          ...selectedApplicant,
+                          status: 'interview',
+                          interviewSchedule: {
+                            date: detailScheduleDate,
+                            time: detailScheduleTime,
+                            type: detailScheduleType,
+                            meetingLink: detailScheduleMeetingLink,
+                            whatsappSent: true
+                          }
+                        });
+                      }}
+                      className="flex-1 py-2 px-3 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-xs transition-all shadow-sm"
+                    >
+                      حفظ وتحديث الموعد 💾
+                    </button>
+
+                    {selectedApplicant.interviewSchedule && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (confirm("هل أنت متأكد من إلغاء وحذف موعد المقابلة لهذا المرشح؟")) {
+                            try {
+                              const res = await fetch(`/api/admin/applicants/${selectedApplicant.id}/review`, {
+                                method: 'PATCH',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': `Bearer ${adminToken}`
+                                },
+                                body: JSON.stringify({
+                                  status: 'reviewing',
+                                  interviewSchedule: null
+                                })
+                              });
+                              if (res.ok) {
+                                alert("تم إلغاء الموعد بنجاح.");
+                                setRefreshTrigger(prev => prev + 1);
+                                setSelectedApplicant({
+                                  ...selectedApplicant,
+                                  status: 'reviewing',
+                                  interviewSchedule: undefined
+                                });
+                              } else {
+                                alert("فشل إلغاء الموعد.");
+                              }
+                            } catch (err) {
+                              console.error(err);
+                              alert("حدث خطأ أثناء الاتصال بالخادم لإلغاء الموعد.");
+                            }
+                          }
+                        }}
+                        className="py-2 px-3 bg-red-50 hover:bg-red-500 text-red-600 hover:text-white border border-red-200 hover:border-red-500 rounded-lg font-bold text-xs transition-all"
+                        title="إلغاء الموعد نهائياً"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Personal Details list card */}
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
                 <h4 className="font-extrabold text-slate-900 border-b border-slate-100 pb-3 mb-2 flex items-center gap-1.5 text-sm">
@@ -1825,7 +1984,7 @@ https://wa.me/966537375580
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block">مشكلة في موقع العمل (حي الرحاب بجدة)؟</span>
+                    <span className="text-slate-400 block">مشكلة في موقع العمل (المنطقة الصناعية بجدة)؟</span>
                     <span className="font-bold text-slate-800">
                       {selectedApplicant.personalInfo.hasLocationIssue === 'yes' ? 'نعم (لديه مشكلة)' : 'لا (لا توجد أي مشكلة)'}
                     </span>
@@ -3082,7 +3241,7 @@ https://wa.me/966537375580
 
                     {schedulingApplicant && (
                       <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
                           {/* Name Input */}
                           <div className="space-y-1 text-right">
                             <label className="text-slate-700 text-xs font-bold block">اسم المتقدم للمقابلة:</label>
@@ -3093,6 +3252,27 @@ https://wa.me/966537375580
                               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
                               placeholder="الاسم الكامل"
                             />
+                          </div>
+
+                          {/* Type Input */}
+                          <div className="space-y-1 text-right">
+                            <label className="text-slate-700 text-xs font-bold block">نوع المقابلة:</label>
+                            <select
+                              value={scheduleType}
+                              onChange={(e) => {
+                                const newType = e.target.value;
+                                setScheduleType(newType);
+                                if (newType === 'in_person') {
+                                  setScheduleMeetingLink('مقر الشركة بجدة');
+                                } else {
+                                  setScheduleMeetingLink(schedulingApplicant?.interviewSchedule?.meetingLink || defaultMeetingLink);
+                                }
+                              }}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs bg-white font-semibold"
+                            >
+                              <option value="remote">🌐 عن بعد (أونلاين)</option>
+                              <option value="in_person">📍 حضوري (بمقر الشركة)</option>
+                            </select>
                           </div>
 
                           {/* Date Input */}
@@ -3118,22 +3298,43 @@ https://wa.me/966537375580
                           </div>
                         </div>
 
-                        {/* Meeting Link Input */}
+                        {/* Meeting Link / Address Input */}
                         <div className="space-y-1 text-right">
-                          <label className="text-slate-700 text-xs font-bold block flex items-center gap-1.5 justify-end">
-                            <span>رابط القاعة الافتراضية لهذه المقابلة (أو استخدم الرابط المشترك):</span>
-                            <Video className="w-3.5 h-3.5 text-orange-500" />
-                          </label>
-                          <input
-                            type="url"
-                            value={scheduleMeetingLink}
-                            onChange={(e) => setScheduleMeetingLink(e.target.value)}
-                            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold font-mono text-left bg-slate-50 focus:bg-white focus:border-orange-500 transition-all"
-                            placeholder="https://meet.google.com/... or Zoom link"
-                          />
-                          <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                            💡 يتم تعبئة هذا الحقل تلقائياً برابط القاعة الافتراضي المشترك، وبإمكانك تعديله أو تخصيصه لهذا المرشح على حدة إذا لزم الأمر.
-                          </p>
+                          {scheduleType === 'in_person' ? (
+                            <>
+                              <label className="text-slate-700 text-xs font-bold block flex items-center gap-1.5 justify-end">
+                                <span>عنوان مقر العمل للمقابلة الحضورية:</span>
+                                <MapPin className="w-3.5 h-3.5 text-orange-500" />
+                              </label>
+                              <input
+                                type="text"
+                                value={scheduleMeetingLink}
+                                onChange={(e) => setScheduleMeetingLink(e.target.value)}
+                                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold text-right bg-slate-50 focus:bg-white focus:border-orange-500 transition-all"
+                                placeholder="مثال: مقر الشركة الرئيسي بمدينة جدة، المنطقة الصناعية"
+                              />
+                              <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                                💡 حدد عنوان مقر الشركة أو فرعها الذي ستُعقد فيه المقابلة الشخصية. سيتم إرساله للمرشح مباشرة.
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <label className="text-slate-700 text-xs font-bold block flex items-center gap-1.5 justify-end">
+                                <span>رابط القاعة الافتراضية لهذه المقابلة (أو استخدم الرابط المشترك):</span>
+                                <Video className="w-3.5 h-3.5 text-orange-500" />
+                              </label>
+                              <input
+                                type="url"
+                                value={scheduleMeetingLink}
+                                onChange={(e) => setScheduleMeetingLink(e.target.value)}
+                                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold font-mono text-left bg-slate-50 focus:bg-white focus:border-orange-500 transition-all"
+                                placeholder="https://meet.google.com/... or Zoom link"
+                              />
+                              <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                                💡 يتم تعبئة هذا الحقل تلقائياً برابط القاعة الافتراضي المشترك، وبإمكانك تعديله أو تخصيصه لهذا المرشح على حدة إذا لزم الأمر.
+                              </p>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
@@ -3336,22 +3537,35 @@ https://wa.me/966537375580
                                 <td className="p-4 text-center text-slate-900 font-black font-mono bg-orange-500/5">{sched.time}</td>
                                 <td className="p-4 text-center">
                                   <div className="flex flex-col items-center justify-center gap-1">
-                                    <span className="bg-indigo-50 text-indigo-700 text-[10px] px-2.5 py-1 rounded-full font-bold">
-                                      مقابلة عن بعد 💻
-                                    </span>
-                                    {sched.meetingLink ? (
-                                      <a
-                                        href={sched.meetingLink}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className={`text-emerald-600 hover:text-emerald-700 hover:underline text-[10px] font-bold flex items-center gap-0.5 font-mono ${sched.meetingLink.includes('abc-') ? 'text-amber-600 hover:text-amber-700' : ''}`}
-                                        title={sched.meetingLink}
-                                      >
-                                        <Video className={`w-3 h-3 inline ${sched.meetingLink.includes('abc-') ? 'text-amber-500 animate-pulse' : 'text-emerald-500'}`} />
-                                        <span>{sched.meetingLink.includes('abc-') ? 'رابط مؤقت (abc-)' : 'رابط القاعة 📹'}</span>
-                                      </a>
+                                    {sched.type === 'in_person' ? (
+                                      <>
+                                        <span className="bg-orange-50 text-orange-700 text-[10px] px-2.5 py-1 rounded-full font-bold">
+                                          مقابلة حضورية 📍
+                                        </span>
+                                        <span className="text-slate-600 text-[10px] font-bold max-w-[150px] truncate" title={sched.meetingLink || 'مقر الشركة'}>
+                                          {sched.meetingLink || 'مقر الشركة'}
+                                        </span>
+                                      </>
                                     ) : (
-                                      <span className="text-slate-400 text-[10px]">لا يوجد رابط</span>
+                                      <>
+                                        <span className="bg-indigo-50 text-indigo-700 text-[10px] px-2.5 py-1 rounded-full font-bold">
+                                          مقابلة عن بعد 💻
+                                        </span>
+                                        {sched.meetingLink ? (
+                                          <a
+                                            href={sched.meetingLink.startsWith('http') ? sched.meetingLink : `https://${sched.meetingLink}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className={`text-emerald-600 hover:text-emerald-700 hover:underline text-[10px] font-bold flex items-center gap-0.5 font-mono ${sched.meetingLink.includes('abc-') ? 'text-amber-600 hover:text-amber-700' : ''}`}
+                                            title={sched.meetingLink}
+                                          >
+                                            <Video className={`w-3 h-3 inline ${sched.meetingLink.includes('abc-') ? 'text-amber-500 animate-pulse' : 'text-emerald-500'}`} />
+                                            <span>{sched.meetingLink.includes('abc-') ? 'رابط مؤقت (abc-)' : 'رابط القاعة 📹'}</span>
+                                          </a>
+                                        ) : (
+                                          <span className="text-slate-400 text-[10px]">لا يوجد رابط</span>
+                                        )}
+                                      </>
                                     )}
                                   </div>
                                 </td>

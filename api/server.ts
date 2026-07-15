@@ -830,6 +830,69 @@ app.post("/api/submit", async (req, res) => {
   }
 });
 
+// Candidate books/schedules their own interview
+app.post("/api/applicants/:id/schedule", async (req, res) => {
+  try {
+    const { date, time, type, meetingLink } = req.body;
+    if (!date || !time || !type) {
+      return res.status(400).json({ error: "الرجاء توفير التاريخ والوقت ونوع المقابلة." });
+    }
+
+    const index = cachedApplicants.findIndex(a => a.id === req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ error: "لم يتم العثور على طلب المتقدم المحدد." });
+    }
+
+    const interviewSchedule = {
+      date,
+      time,
+      type,
+      meetingLink: meetingLink || "",
+      whatsappSent: false
+    };
+
+    cachedApplicants[index].interviewSchedule = interviewSchedule;
+    cachedApplicants[index].status = "interview";
+
+    if (!cachedApplicants[index].hrEvaluation) {
+      cachedApplicants[index].hrEvaluation = {} as any;
+    }
+    (cachedApplicants[index].hrEvaluation as any).interviewSchedule = interviewSchedule;
+
+    // Save database locally
+    fs.writeFileSync(DB_FILE, JSON.stringify(cachedApplicants, null, 2), "utf8");
+
+    // Sync to Supabase
+    await syncApplicantToSupabase(cachedApplicants[index]);
+
+    res.json({ success: true, applicant: cachedApplicants[index] });
+  } catch (error: any) {
+    console.error("Error scheduling candidate interview:", error);
+    res.status(500).json({ error: "حدث خطأ غير متوقع أثناء جدولة المقابلة: " + error.message });
+  }
+});
+
+// Public endpoint to retrieve limited applicant details (to check status and scheduling)
+app.get("/api/applicants/:id", async (req, res) => {
+  try {
+    const applicant = cachedApplicants.find(a => a.id === req.params.id);
+    if (!applicant) {
+      return res.status(404).json({ error: "لم يتم العثور على طلب المتقدم المحدد." });
+    }
+    // Return only safe non-sensitive data
+    res.json({
+      id: applicant.id,
+      status: applicant.status,
+      fullName: applicant.personalInfo?.fullName || "متقدم",
+      interviewSchedule: applicant.interviewSchedule || null,
+      aiEvaluation: applicant.aiEvaluation || null
+    });
+  } catch (error: any) {
+    console.error("Error fetching applicant status:", error);
+    res.status(500).json({ error: "حدث خطأ غير متوقع أثناء استرجاع حالة الطلب: " + error.message });
+  }
+});
+
 // GET Company Logo
 app.get("/api/logo", async (req, res) => {
   try {

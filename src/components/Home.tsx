@@ -285,7 +285,7 @@ export default function Home({ onStartApply, onGoToAdmin }: HomeProps) {
                 نبذة عن الشركة
               </h3>
               <p className="text-slate-600 text-xs leading-relaxed mb-4 font-light">
-                مصنع جدة للدهانات شركة سعودية بالكامل، تأسس منذ أكثر من 40 عاماً ويقع في حي الرحاب بجدة. يمتد المصنع على مساحة تزيد عن 20,000 متر مربع، ويجمع بين أحدث تقنيات التوزيع الألمانية والمواد الخام عالية الجودة لإنتاج دهانات تتحمل الظروف المناخية القاسية في منطقة الخليج.
+                مصنع جدة للدهانات شركة سعودية بالكامل، تأسس منذ أكثر من 40 عاماً ويقع في المنطقة الصناعية بجدة. يمتد المصنع على مساحة تزيد عن 20,000 متر مربع، ويجمع بين أحدث تقنيات التوزيع الألمانية والمواد الخام عالية الجودة لإنتاج دهانات تتحمل الظروف المناخية القاسية في منطقة الخليج.
               </p>
               <p className="text-slate-600 text-xs leading-relaxed font-light">
                 نحن لا نكتفي بخلط الدهانات، بل نصنع الحماية. من الأبراج التجارية الشاهقة في الرياض إلى المستودعات الصناعية في الدمام، صُممت طلاءاتنا لتوفير المتانة والتغطية الكاملة وسهولة الاستخدام.
@@ -295,15 +295,19 @@ export default function Home({ onStartApply, onGoToAdmin }: HomeProps) {
               <div className="flex items-start gap-2.5">
                 <MapPin className="text-slate-400 w-5 h-5 mt-0.5 shrink-0" />
                 <div>
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">عنوان وموقع المصنع</h4>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase">
+                    {activeTab === 'marketing' ? 'عنوان وموقع الإدارة' : 'عنوان وموقع المصنع'}
+                  </h4>
                   <p className="text-xs font-semibold">
                     <a
-                      href="https://maps.app.goo.gl/1htzCJMahE5mh2AJA"
+                      href={activeTab === 'marketing' ? 'https://maps.app.goo.gl/vwvTg73b6S1b26Si9' : 'https://maps.app.goo.gl/XuLsfxrUidjELkBD7'}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-orange-500 hover:underline hover:text-orange-600 font-bold flex items-center gap-1"
+                      className={`${
+                        activeTab === 'marketing' ? 'text-blue-600 hover:text-blue-700' : 'text-orange-500 hover:text-orange-600'
+                      } hover:underline font-bold flex items-center gap-1`}
                     >
-                      حي الرحاب، جدة (انقر لفتح الخريطة 🗺️)
+                      {activeTab === 'marketing' ? 'حي الرحاب، جدة (انقر لفتح الخريطة 🗺️)' : 'المنطقة الصناعية، جدة (انقر لفتح الخريطة 🗺️)'}
                     </a>
                   </p>
                 </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Shield, AlertCircle, RefreshCw, Award, ExternalLink, HelpCircle } from 'lucide-react';
+import { CheckCircle2, Shield, AlertCircle, RefreshCw, Award, ExternalLink, HelpCircle, Calendar, Video, MapPin, Loader2 } from 'lucide-react';
 import { AiEvaluation } from '../types';
 
 interface SuccessScreenProps {
@@ -11,6 +11,44 @@ interface SuccessScreenProps {
 }
 
 export default function SuccessScreen({ applicationId, status, aiEvaluation, applicantName, onGoHome }: SuccessScreenProps) {
+  const [liveApplicant, setLiveApplicant] = React.useState<any>(null);
+  const [liveLoading, setLiveLoading] = React.useState(true);
+
+  // Booking Form State
+  const [bookingDate, setBookingDate] = React.useState('');
+  const [bookingTime, setBookingTime] = React.useState('');
+  const [bookingType, setBookingType] = React.useState('remote');
+  const [bookingMeetingLink, setBookingMeetingLink] = React.useState('');
+  const [isBooking, setIsBooking] = React.useState(false);
+  const [bookingSuccess, setBookingSuccess] = React.useState(false);
+
+  const fetchLiveStatus = async () => {
+    try {
+      setLiveLoading(true);
+      const res = await fetch(`/api/applicants/${applicationId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setLiveApplicant(data);
+        if (data.interviewSchedule) {
+          setBookingDate(data.interviewSchedule.date || '');
+          setBookingTime(data.interviewSchedule.time || '');
+          setBookingType(data.interviewSchedule.type || 'remote');
+          setBookingMeetingLink(data.interviewSchedule.meetingLink || '');
+        }
+      }
+    } catch (error) {
+      console.error("Error loading applicant live status:", error);
+    } finally {
+      setLiveLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (applicationId) {
+      fetchLiveStatus();
+    }
+  }, [applicationId]);
+
   // Translate recommendation to Arabic
   const getRecLabel = (rec?: string) => {
     if (rec === 'suitable') return 'مؤهل ومطابق لمعايير المصنع';
@@ -90,6 +128,277 @@ export default function SuccessScreen({ applicationId, status, aiEvaluation, app
               <span className="font-bold text-blue-900 block mb-1">ما هي الخطوة التالية؟</span>
               سيقوم فريق الموارد البشرية (HR) وفريق الهندسة الفنية بالمصنع بمراجعة وتدقيق المستندات المرفوعة وسيرتك الذاتية ومطابقتها مع التقييم الذكي. في حال كنت من المؤهلين سيتم التواصل معك عبر رقم الجوال أو البريد الإلكتروني لتنسيق المقابلة الفنية والميدانية المباشرة بمقر الشركة.
             </div>
+          </div>
+
+          {/* Interactive Scheduling Widget for Candidate */}
+          <div className="space-y-4" id="candidate-scheduling-section">
+            {liveLoading ? (
+              <div className="p-8 text-center text-slate-500 font-bold text-xs flex items-center justify-center gap-2 bg-slate-50 border border-slate-150 rounded-xl">
+                <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                <span>جاري تحميل تفاصيل ومواعيد المقابلات...</span>
+              </div>
+            ) : liveApplicant?.interviewSchedule ? (
+              <div className="border border-emerald-200 rounded-xl p-6 bg-emerald-50/50 space-y-4" id="scheduled-interview-card">
+                <div className="flex items-center gap-3 border-b border-emerald-100 pb-4 mb-2 text-right justify-end flex-row-reverse">
+                  <div className="bg-emerald-100 p-2 rounded-lg text-emerald-800">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-extrabold text-emerald-900 text-sm md:text-base">موعد المقابلة الشخصية المؤكد 📅</h3>
+                    <p className="text-[10px] text-emerald-600 font-semibold">تهانينا! لقد تم جدولة وتأكيد موعد مقابلتك الشخصية الفنية بنجاح.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-right">
+                  <div className="bg-white p-4 rounded-xl border border-emerald-100/80">
+                    <span className="text-[10px] text-slate-400 block mb-0.5 font-bold">تاريخ المقابلة</span>
+                    <span className="text-sm font-extrabold text-slate-800">
+                      {new Date(liveApplicant.interviewSchedule.date).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    </span>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl border border-emerald-100/80">
+                    <span className="text-[10px] text-slate-400 block mb-0.5 font-bold">الوقت المحدد</span>
+                    <span className="text-sm font-black text-slate-800 font-mono">
+                      {liveApplicant.interviewSchedule.time}
+                    </span>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl border border-emerald-100/80 md:col-span-2">
+                    <span className="text-[10px] text-slate-400 block mb-0.5 font-bold">نوع ومكان المقابلة</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      {liveApplicant.interviewSchedule.type === 'in_person' ? (
+                        <>
+                          <span className="bg-orange-100 text-orange-800 text-[10px] px-2 py-0.5 rounded-full font-bold">حضورية بمقر العمل 📍</span>
+                          <span className="text-xs font-bold text-slate-700">{liveApplicant.interviewSchedule.meetingLink || 'مقر الشركة الرئيسي بجدة'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="bg-indigo-100 text-indigo-800 text-[10px] px-2 py-0.5 rounded-full font-bold">عن بعد (أونلاين) 💻</span>
+                          {liveApplicant.interviewSchedule.meetingLink ? (
+                            <a
+                              href={liveApplicant.interviewSchedule.meetingLink.startsWith('http') ? liveApplicant.interviewSchedule.meetingLink : `https://${liveApplicant.interviewSchedule.meetingLink}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs font-black text-emerald-600 hover:underline flex items-center gap-1 font-mono"
+                            >
+                              <Video className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+                              <span>اضغط هنا لدخول القاعة الافتراضية 📹</span>
+                            </a>
+                          ) : (
+                            <span className="text-xs text-slate-400">سيتم إرسال رابط القاعة قبل موعد المقابلة مباشرة.</span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 text-center">
+                  <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                    💡 هل ترغب في تعديل أو تغيير موعد المقابلة المحدد؟ بإمكانك استخدام النموذج أدناه لاختيار موعد جديد وحفظه تلقائياً.
+                  </p>
+                </div>
+
+                {/* Sub-form to allow rescheduling */}
+                <div className="border-t border-emerald-100 pt-4 mt-2">
+                  <h4 className="text-xs font-bold text-slate-800 mb-3 text-right">إعادة جدولة وتغيير موعد المقابلة:</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-slate-500 text-[10px] font-bold block">التاريخ الجديد:</label>
+                      <input
+                        type="date"
+                        value={bookingDate}
+                        onChange={(e) => setBookingDate(e.target.value)}
+                        className="w-full border border-slate-200 rounded-lg p-2 text-xs font-semibold"
+                        min={new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-slate-500 text-[10px] font-bold block">الوقت الجديد:</label>
+                      <input
+                        type="time"
+                        value={bookingTime}
+                        onChange={(e) => setBookingTime(e.target.value)}
+                        className="w-full border border-slate-200 rounded-lg p-2 text-xs font-semibold"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-slate-500 text-[10px] font-bold block">النوع:</label>
+                      <select
+                        value={bookingType}
+                        onChange={(e) => {
+                          const newType = e.target.value;
+                          setBookingType(newType);
+                          if (newType === 'in_person') {
+                            setBookingMeetingLink('مقر الشركة بجدة');
+                          } else {
+                            setBookingMeetingLink('https://meet.google.com/abc-defg-hij');
+                          }
+                        }}
+                        className="w-full border border-slate-200 bg-white rounded-lg p-2 text-xs font-semibold"
+                      >
+                        <option value="remote">🌐 عن بعد (أونلاين)</option>
+                        <option value="in_person">📍 حضوري (بمقر الشركة)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!bookingDate || !bookingTime || isBooking}
+                    onClick={async () => {
+                      try {
+                        setIsBooking(true);
+                        const res = await fetch(`/api/applicants/${applicationId}/schedule`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            date: bookingDate,
+                            time: bookingTime,
+                            type: bookingType,
+                            meetingLink: bookingMeetingLink
+                          })
+                        });
+                        if (res.ok) {
+                          alert("تم تعديل وإعادة جدولة موعد المقابلة بنجاح! 🎉");
+                          fetchLiveStatus();
+                        } else {
+                          alert("فشل تحديث الموعد، يرجى المحاولة لاحقاً.");
+                        }
+                      } catch (error) {
+                        console.error(error);
+                        alert("حدث خطأ غير متوقع أثناء تحديث الموعد.");
+                      } finally {
+                        setIsBooking(false);
+                      }
+                    }}
+                    className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs py-2 rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {isBooking ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>جاري حفظ الموعد الجديد...</span>
+                      </>
+                    ) : (
+                      <span>حفظ وتثبيت الموعد الجديد 💾</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="border border-slate-200 rounded-xl p-6 bg-white space-y-4" id="schedule-booking-form">
+                <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-2 text-right justify-end flex-row-reverse">
+                  <div className="bg-blue-50 p-2 rounded-lg text-blue-900">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-extrabold text-blue-900 text-sm md:text-base">حجز وجدولة مقابلة شخصية فورية 🗓️</h3>
+                    <p className="text-[10px] text-slate-400 font-semibold">بإمكانك الآن اختيار موعد المقابلة المناسب لك مباشرة لتأكيد موعدك وحجز مقعدك.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4 text-right">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Date */}
+                    <div className="space-y-1">
+                      <label className="text-slate-700 text-xs font-bold block">1. اختر تاريخ المقابلة:</label>
+                      <input
+                        type="date"
+                        value={bookingDate}
+                        onChange={(e) => setBookingDate(e.target.value)}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
+                        min={new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+
+                    {/* Time */}
+                    <div className="space-y-1">
+                      <label className="text-slate-700 text-xs font-bold block">2. اختر توقيت المقابلة:</label>
+                      <input
+                        type="time"
+                        value={bookingTime}
+                        onChange={(e) => setBookingTime(e.target.value)}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs font-semibold"
+                      />
+                    </div>
+
+                    {/* Type selector */}
+                    <div className="space-y-1">
+                      <label className="text-slate-700 text-xs font-bold block">3. حدد نوع المقابلة:</label>
+                      <select
+                        value={bookingType}
+                        onChange={(e) => {
+                          const newType = e.target.value;
+                          setBookingType(newType);
+                          if (newType === 'in_person') {
+                            setBookingMeetingLink('مقر الشركة بجدة');
+                          } else {
+                            setBookingMeetingLink('https://meet.google.com/abc-defg-hij');
+                          }
+                        }}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none text-xs bg-white font-semibold"
+                      >
+                        <option value="remote">🌐 عن بعد (أونلاين)</option>
+                        <option value="in_person">📍 حضوري (بمقر الشركة)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {bookingType === 'in_person' ? (
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-right">
+                      <span className="text-[10px] text-slate-400 block mb-1 font-bold">📍 مكان المقابلة الحضورية:</span>
+                      <span className="text-xs font-bold text-slate-700 block">مقر الشركة بجدة - مقابلات مباشرة حضورية يوم السبت</span>
+                      <p className="text-[9px] text-amber-600 font-semibold mt-1">📝 يرجى التواجد بالموعد المحدد مصطحباً السيرة الذاتية والهوية الوطنية.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-right">
+                      <span className="text-[10px] text-slate-400 block mb-1 font-bold">💻 رابط القاعة الافتراضية (عن بعد):</span>
+                      <span className="text-xs font-semibold font-mono text-slate-600 text-left block">https://meet.google.com/abc-defg-hij</span>
+                      <p className="text-[9px] text-amber-600 font-semibold mt-1">📝 يرجى الدخول للرابط المحدد في الوقت المختار للمقابلة عبر متصفح الويب أو جوالك.</p>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={!bookingDate || !bookingTime || isBooking}
+                    onClick={async () => {
+                      try {
+                        setIsBooking(true);
+                        const res = await fetch(`/api/applicants/${applicationId}/schedule`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            date: bookingDate,
+                            time: bookingTime,
+                            type: bookingType,
+                            meetingLink: bookingMeetingLink
+                          })
+                        });
+                        if (res.ok) {
+                          setBookingSuccess(true);
+                          fetchLiveStatus();
+                        } else {
+                          alert("فشل حجز الموعد، يرجى المحاولة لاحقاً.");
+                        }
+                      } catch (error) {
+                        console.error(error);
+                        alert("حدث خطأ غير متوقع أثناء حجز الموعد.");
+                      } finally {
+                        setIsBooking(false);
+                      }
+                    }}
+                    className="w-full bg-blue-900 hover:bg-blue-950 disabled:opacity-50 text-white font-extrabold text-xs py-3.5 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {isBooking ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>جاري حجز وتأكيد موعدك...</span>
+                      </>
+                    ) : (
+                      <span>تأكيد وحجز موعد المقابلة الآن 🗓️</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* WhatsApp Direct Contact Section */}
