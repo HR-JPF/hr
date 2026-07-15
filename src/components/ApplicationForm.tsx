@@ -644,7 +644,7 @@ export default function ApplicationForm({ onCancel, onSubmitSuccess, jobRole = '
         if (response.status === 413 || responseText.toLowerCase().includes("too large") || responseText.toLowerCase().includes("payload too large")) {
           throw new Error("عذراً، حجم الملفات والمستندات المرفقة كبير جداً ويتجاوز الحد الأقصى المسموح به لخادم الاستضافة. يرجى ضغط جميع ملفات الـ PDF المرفقة (بحيث لا يتجاوز حجم كل ملف 1.5 ميغابايت والمجموع الكلي 4 ميغابايت) باستخدام مواقع ضغط ملفات الـ PDF المجانية (مثل iLovePDF) ثم محاولة تقديم الطلب مرة أخرى.");
         }
-        throw new Error("حدث خطأ فني أثناء إرسال طلبك إلى الخادم (غالباً بسبب الحجم الزائد للملفات المرفقة). يرجى مراجعة أحجام مستنداتك وضغطها ثم المحاولة مجدداً.");
+        throw new Error(`حدث خطأ فني أثناء إرسال طلبك إلى الخادم (الكود: ${response.status}). التفاصيل: ${responseText.substring(0, 150)}...`);
       }
 
       if (!response.ok) {

@@ -580,9 +580,10 @@ https://wa.me/966537375580
         body: JSON.stringify({ email: email.trim(), password })
       });
 
-      const data = await res.json();
+      let data;
+      try { data = await res.json(); } catch (err) { throw new Error("حدث خطأ في الخادم (Server Error). يرجى المحاولة لاحقاً."); }
       if (!res.ok) {
-        throw new Error(data.error || "فشل تسجيل الدخول.");
+        throw new Error(data?.error || "فشل تسجيل الدخول.");
       }
 
       safeStorage.setItem('hse_admin_token', data.token);

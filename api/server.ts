@@ -2,6 +2,15 @@ import express from "express";
 // GitHub Sync: Minor update to trigger re-push
 import path from "path";
 import fs from "fs";
+
+function safeWriteFile(path: string, data: any, options?: any) {
+  try {
+    safeWriteFile(path, data, options);
+  } catch (err) {
+    console.error("Safe to ignore on Vercel (read-only FS): could not write to", path);
+  }
+}
+
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
@@ -48,7 +57,7 @@ if (fs.existsSync(LOGS_FILE)) {
     cachedLogs = [];
   }
 } else {
-  fs.writeFileSync(LOGS_FILE, JSON.stringify([]));
+  safeWriteFile(LOGS_FILE, JSON.stringify([]));
 }
 
 function writeLog(action: string, details: string, applicantId?: string, adminEmail?: string) {
@@ -63,7 +72,7 @@ function writeLog(action: string, details: string, applicantId?: string, adminEm
   cachedLogs.push(log);
   if (cachedLogs.length > 5000) cachedLogs = cachedLogs.slice(-5000); // Keep last 5000
   try {
-    fs.writeFileSync(LOGS_FILE, JSON.stringify(cachedLogs, null, 2), "utf8");
+    safeWriteFile(LOGS_FILE, JSON.stringify(cachedLogs, null, 2), "utf8");
   } catch (e) {
     console.error("Failed to write log", e);
   }
@@ -89,7 +98,7 @@ if (fs.existsSync(SETTINGS_FILE)) {
     cachedSettings = { maintenanceMode: false, maintenanceEndTime: null };
   }
 } else {
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(cachedSettings, null, 2));
+  safeWriteFile(SETTINGS_FILE, JSON.stringify(cachedSettings, null, 2));
 }
 
 // [GET] Settings (Public)
@@ -105,7 +114,7 @@ app.post("/api/settings", requireAdmin, (req, res) => {
     cachedSettings.maintenanceEndTime = maintenanceEndTime || null;
     
     try {
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(cachedSettings, null, 2), "utf8");
+      safeWriteFile(SETTINGS_FILE, JSON.stringify(cachedSettings, null, 2), "utf8");
     } catch (e) {
       console.error("Failed to write settings", e);
     }
@@ -191,8 +200,10 @@ initSupabase();
 // Synchronize and initialize cached data
 async function syncDatabase() {
   initSupabase();
-  if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
+  try {
+    try { if (!fs.existsSync(DB_DIR)) { fs.mkdirSync(DB_DIR, { recursive: true }); } } catch (err) { console.error("Safe to ignore on Vercel:", err); }
+  } catch (err) {
+    console.error("Could not create DB_DIR (safe to ignore on Vercel):", err);
   }
 
   // 1. Load Admins
@@ -214,7 +225,7 @@ async function syncDatabase() {
       createdAt: new Date().toISOString()
     }];
     try {
-      fs.writeFileSync(ADMINS_FILE, JSON.stringify(localAdmins, null, 2), "utf8");
+      safeWriteFile(ADMINS_FILE, JSON.stringify(localAdmins, null, 2), "utf8");
     } catch (e) {}
   } else {
     // Ensure the default admin "hamany01@gmail.com" has the correct password hash requested by the user: "A123@a456@"
@@ -226,7 +237,7 @@ async function syncDatabase() {
         console.log(`Enforcing admin password hash for ${targetEmail} in local database.`);
         defaultAdminObj.passwordHash = requiredHash;
         try {
-          fs.writeFileSync(ADMINS_FILE, JSON.stringify(localAdmins, null, 2), "utf8");
+          safeWriteFile(ADMINS_FILE, JSON.stringify(localAdmins, null, 2), "utf8");
         } catch (e) {}
       }
     } else {
@@ -237,7 +248,7 @@ async function syncDatabase() {
         createdAt: new Date().toISOString()
       });
       try {
-        fs.writeFileSync(ADMINS_FILE, JSON.stringify(localAdmins, null, 2), "utf8");
+        safeWriteFile(ADMINS_FILE, JSON.stringify(localAdmins, null, 2), "utf8");
       } catch (e) {}
     }
   }
@@ -257,7 +268,7 @@ async function syncDatabase() {
       localApplicants = localApplicants.filter(a => !idsToDelete.includes(a.id));
       if (localApplicants.length !== initialLength) {
         console.log(`Filtered out ${initialLength - localApplicants.length} test applicants locally.`);
-        fs.writeFileSync(DB_FILE, JSON.stringify(localApplicants, null, 2), "utf8");
+        safeWriteFile(DB_FILE, JSON.stringify(localApplicants, null, 2), "utf8");
       }
     }
   } catch (err) {
@@ -399,8 +410,8 @@ async function syncDatabase() {
 
       // Write back to local files as a fallback cache, catching any filesystem errors (e.g. read-only filesystem on Vercel)
       try {
-        fs.writeFileSync(ADMINS_FILE, JSON.stringify(cachedAdmins, null, 2), "utf8");
-        fs.writeFileSync(DB_FILE, JSON.stringify(cachedApplicants, null, 2), "utf8");
+        safeWriteFile(ADMINS_FILE, JSON.stringify(cachedAdmins, null, 2), "utf8");
+        safeWriteFile(DB_FILE, JSON.stringify(cachedApplicants, null, 2), "utf8");
       } catch (fsErr) {
         console.warn("Could not write fallback cache files (expected in read-only environments like Vercel):", fsErr);
       }
@@ -483,9 +494,7 @@ function verifyToken(token: string): string | null {
 
 // Initialize admins with the user-specified credentials
 function initAdmins() {
-  if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
-  }
+  try { if (!fs.existsSync(DB_DIR)) { fs.mkdirSync(DB_DIR, { recursive: true }); } } catch (err) { console.error("Safe to ignore on Vercel:", err); }
   if (!fs.existsSync(ADMINS_FILE)) {
     const defaultAdmin = {
       id: "admin-default",
@@ -493,7 +502,7 @@ function initAdmins() {
       passwordHash: hashPassword("A123@a456@"),
       createdAt: new Date().toISOString()
     };
-    fs.writeFileSync(ADMINS_FILE, JSON.stringify([defaultAdmin], null, 2), "utf8");
+    safeWriteFile(ADMINS_FILE, JSON.stringify([defaultAdmin], null, 2), "utf8");
     console.log("Admins database initialized with primary administrator account.");
   }
 }
@@ -505,7 +514,7 @@ function readAdmins(): any[] {
 async function writeAdmins(admins: any[]) {
   cachedAdmins = admins;
   try {
-    fs.writeFileSync(ADMINS_FILE, JSON.stringify(admins, null, 2), "utf8");
+    safeWriteFile(ADMINS_FILE, JSON.stringify(admins, null, 2), "utf8");
   } catch (err) {
     console.error("Error writing admins (this is fine in read-only environments like Vercel):", err);
   }
@@ -535,12 +544,10 @@ async function writeAdmins(admins: any[]) {
 
 // Ensure database directory and file exist with seed data
 function initDatabase() {
-  if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
-  }
+  try { if (!fs.existsSync(DB_DIR)) { fs.mkdirSync(DB_DIR, { recursive: true }); } } catch (err) { console.error("Safe to ignore on Vercel:", err); }
 
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2), "utf8");
+    safeWriteFile(DB_FILE, JSON.stringify([], null, 2), "utf8");
     console.log("Database initialized with an empty applicants list.");
   }
 }
@@ -681,7 +688,7 @@ async function saveSetting(key: string, value: string): Promise<void> {
 
   // Save local file
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(cachedApplicants, null, 2), "utf8");
+    safeWriteFile(DB_FILE, JSON.stringify(cachedApplicants, null, 2), "utf8");
   } catch (err) {
     console.error(`Failed to save setting ${key} locally:`, err);
   }
@@ -913,7 +920,7 @@ app.post("/api/submit", async (req, res) => {
     applicants.push(newApplicant);
     cachedApplicants = applicants;
     try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(applicants, null, 2), "utf8");
+      safeWriteFile(DB_FILE, JSON.stringify(applicants, null, 2), "utf8");
     } catch (err) {
       console.error("Error writing fallback local database:", err);
     }
@@ -962,7 +969,7 @@ app.post("/api/applicants/:id/schedule", async (req, res) => {
     (cachedApplicants[index].hrEvaluation as any).interviewSchedule = interviewSchedule;
 
     // Save database locally
-    fs.writeFileSync(DB_FILE, JSON.stringify(cachedApplicants, null, 2), "utf8");
+    safeWriteFile(DB_FILE, JSON.stringify(cachedApplicants, null, 2), "utf8");
 
     // Sync to Supabase
     await syncApplicantToSupabase(cachedApplicants[index]);
@@ -1426,7 +1433,7 @@ app.patch("/api/admin/applicants/:id/review", requireAdmin, async (req, res) => 
   
   cachedApplicants = applicants;
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(applicants, null, 2), "utf8");
+    safeWriteFile(DB_FILE, JSON.stringify(applicants, null, 2), "utf8");
   } catch (err) {
     console.error("Error writing fallback local database:", err);
   }
@@ -1447,7 +1454,7 @@ app.delete("/api/admin/applicants/:id", requireAdmin, async (req, res) => {
   applicants.splice(index, 1);
   cachedApplicants = applicants;
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(applicants, null, 2), "utf8");
+    safeWriteFile(DB_FILE, JSON.stringify(applicants, null, 2), "utf8");
   } catch (err) {
     console.error("Error writing fallback local database:", err);
   }
@@ -1462,7 +1469,7 @@ export default app;
 // Handle serving the React SPA correctly
 async function startServer() {
   // Synchronize database with Supabase on start
-  await syncDatabase();
+  try { await syncDatabase(); } catch (e) { console.error("Initial database sync failed:", e); }
 
   if (process.env.VERCEL) {
     // On Vercel, request routing for /api/* is handled by serverless functions,
