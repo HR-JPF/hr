@@ -5,7 +5,7 @@ import fs from "fs";
 
 function safeWriteFile(path: string, data: any, options?: any) {
   try {
-    safeWriteFile(path, data, options);
+    fs.writeFileSync(path, data, options);
   } catch (err) {
     console.error("Safe to ignore on Vercel (read-only FS): could not write to", path);
   }

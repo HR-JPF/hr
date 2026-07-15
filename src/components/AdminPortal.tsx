@@ -608,7 +608,7 @@ https://wa.me/966537375580
         return;
       }
       if (res.ok) {
-        const data = await res.json();
+        let data; try { data = await res.json(); } catch (err) { throw new Error("استجابة الخادم غير صالحة. قد يكون هناك تحديث أو عطل مؤقت في النظام."); }
         setAdminsList(data);
       }
     } catch (err) {
@@ -641,7 +641,7 @@ https://wa.me/966537375580
         body: JSON.stringify({ oldPassword, newPassword })
       });
 
-      const data = await res.json();
+      let data; try { data = await res.json(); } catch (err) { throw new Error("استجابة الخادم غير صالحة. قد يكون هناك تحديث أو عطل مؤقت في النظام."); }
       if (!res.ok) {
         throw new Error(data.error || "فشل تغيير كلمة المرور.");
       }
@@ -673,7 +673,7 @@ https://wa.me/966537375580
         body: JSON.stringify({ email: newAdminEmail, password: newAdminPassword })
       });
 
-      const data = await res.json();
+      let data; try { data = await res.json(); } catch (err) { throw new Error("استجابة الخادم غير صالحة. قد يكون هناك تحديث أو عطل مؤقت في النظام."); }
       if (!res.ok) {
         throw new Error(data.error || "فشل إضافة المسؤول.");
       }
@@ -701,7 +701,7 @@ https://wa.me/966537375580
         headers: { 'Authorization': `Bearer ${adminToken}` }
       });
 
-      const data = await res.json();
+      let data; try { data = await res.json(); } catch (err) { throw new Error("استجابة الخادم غير صالحة. قد يكون هناك تحديث أو عطل مؤقت في النظام."); }
       if (!res.ok) {
         throw new Error(data.error || "فشل حذف المسؤول.");
       }
@@ -857,7 +857,7 @@ https://wa.me/966537375580
         })
       });
 
-      const data = await res.json();
+      let data; try { data = await res.json(); } catch (err) { throw new Error("استجابة الخادم غير صالحة. قد يكون هناك تحديث أو عطل مؤقت في النظام."); }
       if (!res.ok) {
         throw new Error(data.error || "فشل حفظ التقييم الإداري.");
       }
@@ -1137,7 +1137,7 @@ https://wa.me/966537375580
           }
         })
       });
-      const data = await res.json();
+      let data; try { data = await res.json(); } catch (err) { throw new Error("استجابة الخادم غير صالحة. قد يكون هناك تحديث أو عطل مؤقت في النظام."); }
       if (res.ok) {
         alert("تم حفظ وتحديث موعد المقابلة وتحديث حالة الطلب إلى (مقابلة شخصية) بنجاح!");
         setRefreshTrigger(prev => prev + 1);
@@ -1280,7 +1280,7 @@ https://wa.me/966537375580
           })
         });
 
-        const data = await res.json();
+        let data; try { data = await res.json(); } catch (err) { throw new Error("استجابة الخادم غير صالحة. قد يكون هناك تحديث أو عطل مؤقت في النظام."); }
         if (res.ok) {
           alert("تم رفع وحفظ المستند الإضافي بنجاح!");
           // Update selectedApplicant locally
@@ -2785,7 +2785,7 @@ https://wa.me/966537375580
           
           
           {activeSubTab === 'site_settings' && (
-            <SiteSettingsPanel token={token} />
+              <SiteSettingsPanel token={adminToken || ""} />
           )}
 
           {activeSubTab === 'logs' && (
@@ -4986,7 +4986,10 @@ function SiteSettingsPanel({ token }: { token: string }) {
 
   useEffect(() => {
     fetch('/api/settings')
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) throw new Error('Failed to fetch');
+        return res.json();
+      })
       .then(data => {
         setMaintenanceMode(data.maintenanceMode);
         if (data.maintenanceEndTime) {
