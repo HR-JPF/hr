@@ -206,13 +206,67 @@ export default function ApplicationForm({ onCancel, onSubmitSuccess, jobRole = '
     safeStorage.setItem(`exam_autosave_${roleKey}`, JSON.stringify(examAnswers));
   }, [examAnswers, jobRole]);
 
+  // --- Helper to check file size and total uploaded files size to prevent 413 payload too large errors ---
+  const checkFileSizeAndTotal = (
+    newFile: File,
+    fieldToReplace?: 'cv' | 'certs' | 'kawader' | 'portfolio' | string
+  ): boolean => {
+    const MAX_SINGLE_SIZE = 2 * 1024 * 1024; // 2.0MB
+    const MAX_TOTAL_SIZE = 4 * 1024 * 1024; // 4.0MB
+
+    // 1. Check single file size
+    if (newFile.size > MAX_SINGLE_SIZE) {
+      const sizeInMB = (newFile.size / (1024 * 1024)).toFixed(2);
+      alert(
+        `عذراً، حجم ملف "${newFile.name}" هو (${sizeInMB} ميغابايت)، وهو يتجاوز الحد الأقصى المسموح به للملف الواحد (2.0 ميغابايت).\n\n💡 نصيحة: يرجى استخدام مواقع ضغط الـ PDF المجانية عبر الإنترنت (مثل iLovePDF أو Smallpdf) لضغط الملف وتقليل حجمه ومن ثم إعادة إرفاقه.`
+      );
+      return false;
+    }
+
+    // 2. Calculate current total size of other files
+    let currentTotalSize = 0;
+    if (fieldToReplace !== 'cv' && personalInfo.cvBase64) {
+      currentTotalSize += Math.round(personalInfo.cvBase64.length * 0.75);
+    }
+    if (fieldToReplace !== 'certs' && personalInfo.certsBase64) {
+      currentTotalSize += Math.round(personalInfo.certsBase64.length * 0.75);
+    }
+    if (fieldToReplace !== 'kawader' && personalInfo.kawaderLicenseBase64) {
+      currentTotalSize += Math.round(personalInfo.kawaderLicenseBase64.length * 0.75);
+    }
+    if (fieldToReplace !== 'portfolio' && personalInfo.portfolioBase64) {
+      currentTotalSize += Math.round(personalInfo.portfolioBase64.length * 0.75);
+    }
+    if (personalInfo.additionalDocuments && personalInfo.additionalDocuments.length > 0) {
+      personalInfo.additionalDocuments.forEach(doc => {
+        if (fieldToReplace !== doc.id && doc.base64) {
+          currentTotalSize += Math.round(doc.base64.length * 0.75);
+        }
+      });
+    }
+
+    // 3. Estimate new total size
+    const estimatedNewTotal = currentTotalSize + newFile.size;
+    if (estimatedNewTotal > MAX_TOTAL_SIZE) {
+      const estimatedNewTotalMB = (estimatedNewTotal / (1024 * 1024)).toFixed(2);
+      const currentTotalMB = (currentTotalSize / (1024 * 1024)).toFixed(2);
+      const fileSizeMB = (newFile.size / (1024 * 1024)).toFixed(2);
+      alert(
+        `عذراً! لا يمكن إضافة هذا الملف لأن إجمالي حجم كافة المستندات المرفقة سيصل إلى (${estimatedNewTotalMB} ميغابايت)، وهو ما يتجاوز الحد الأقصى المسموح به لكافة الملفات معاً (4.0 ميغابايت) لضمان إرسال طلبك للخادم بنجاح.\n\nتفاصيل الحجم:\n- حجم الملف الحالي: ${fileSizeMB} ميغابايت\n- حجم الملفات المرفقة الأخرى: ${currentTotalMB} ميغابايت\n\n💡 نصيحة: يرجى تقليل حجم أو ضغط ملفاتك الأخرى باستخدام أدوات ضغط الـ PDF عبر الإنترنت لتقليل الحجم الكلي ومن ثم إرفاق الملف.`
+      );
+      return false;
+    }
+
+    return true;
+  };
+
   // --- Helper to convert files to Base64 ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'cv' | 'certs' | 'kawader') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert("حجم الملف كبير جداً! الحد الأقصى المسموح به هو 10 ميغابايت.");
+    if (!checkFileSizeAndTotal(file, type)) {
+      e.target.value = '';
       return;
     }
 
@@ -246,8 +300,8 @@ export default function ApplicationForm({ onCancel, onSubmitSuccess, jobRole = '
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert("حجم الملف كبير جداً! الحد الأقصى المسموح به هو 10 ميغابايت.");
+    if (!checkFileSizeAndTotal(file, 'portfolio')) {
+      e.target.value = '';
       return;
     }
 
@@ -306,8 +360,7 @@ export default function ApplicationForm({ onCancel, onSubmitSuccess, jobRole = '
     if (!files || files.length === 0) return;
 
     Array.from(files as FileList).forEach((file: File) => {
-      if (file.size > 10 * 1024 * 1024) {
-        alert(`الملف "${file.name}" حجمه كبير جداً! الحد الأقصى المسموح به هو 10 ميغابايت.`);
+      if (!checkFileSizeAndTotal(file, 'new_doc')) {
         return;
       }
 
@@ -539,7 +592,17 @@ export default function ApplicationForm({ onCancel, onSubmitSuccess, jobRole = '
         })
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseErr) {
+        if (response.status === 413 || responseText.toLowerCase().includes("too large") || responseText.toLowerCase().includes("payload too large")) {
+          throw new Error("عذراً، حجم الملفات والمستندات المرفقة كبير جداً ويتجاوز الحد الأقصى المسموح به لخادم الاستضافة. يرجى ضغط جميع ملفات الـ PDF المرفقة (بحيث لا يتجاوز حجم كل ملف 1.5 ميغابايت والمجموع الكلي 4 ميغابايت) باستخدام مواقع ضغط ملفات الـ PDF المجانية (مثل iLovePDF) ثم محاولة تقديم الطلب مرة أخرى.");
+        }
+        throw new Error("حدث خطأ فني أثناء إرسال طلبك إلى الخادم (غالباً بسبب الحجم الزائد للملفات المرفقة). يرجى مراجعة أحجام مستنداتك وضغطها ثم المحاولة مجدداً.");
+      }
+
       if (!response.ok) {
         throw new Error(data.error || "فشل إرسال الطلب، يرجى المحاولة لاحقاً.");
       }
