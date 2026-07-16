@@ -17,6 +17,19 @@ interface AdminPortalProps {
   onGoHome: () => void;
 }
 
+function formatTo12Hour(timeStr: string): string {
+  if (!timeStr) return '';
+  const parts = timeStr.split(':');
+  if (parts.length < 2) return timeStr;
+  let hours = parseInt(parts[0], 10);
+  const minutes = parts[1];
+  if (isNaN(hours)) return timeStr;
+  const ampm = hours >= 12 ? 'م' : 'ص';
+  hours = hours % 12;
+  hours = hours ? hours : 12; // the hour '0' should be '12'
+  return `${hours}:${minutes} ${ampm}`;
+}
+
 export default function AdminPortal({ onGoHome }: AdminPortalProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [portalRole, setPortalRole] = useState<"hse" | "marketing" | null>(null);
@@ -167,7 +180,7 @@ export default function AdminPortal({ onGoHome }: AdminPortalProps) {
         experienceYears: Number(editExperienceYears) || 0,
       };
 
-      const adminToken = safeStorage.getItem('adminToken');
+      const adminToken = safeStorage.getItem('hse_admin_token');
       const res = await fetch(`/api/admin/applicants/${selectedApplicant.id}/review`, {
         method: 'PATCH',
         headers: {
@@ -1858,7 +1871,7 @@ https://wa.me/966537375580
                     <span className="text-[11px] font-bold text-slate-700 block">1. إرسال دعوة المقابلة الشخصية 🗓️</span>
                     {selectedApplicant.interviewSchedule ? (
                       <div className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-1.5 rounded-lg font-bold border border-emerald-100 mb-2">
-                        ✓ تم جدولة موعد في {new Date(selectedApplicant.interviewSchedule.date).toLocaleDateString('ar-SA')} الساعة {selectedApplicant.interviewSchedule.time}
+                        ✓ تم جدولة موعد في {new Date(selectedApplicant.interviewSchedule.date).toLocaleDateString('ar-SA')} الساعة {formatTo12Hour(selectedApplicant.interviewSchedule.time)}
                       </div>
                     ) : (
                       <div className="text-[10px] text-orange-600 bg-orange-50 px-2 py-1.5 rounded-lg font-bold border border-orange-100 mb-2">
@@ -3880,7 +3893,7 @@ https://wa.me/966537375580
                                 <td className="p-4 font-bold text-slate-950">{a.personalInfo.fullName}</td>
                                 <td className="p-4 font-bold font-mono text-slate-500">{a.id}</td>
                                 <td className="p-4 text-slate-700 font-bold">{arabDate}</td>
-                                <td className="p-4 text-center text-slate-900 font-black font-mono bg-orange-500/5">{sched.time}</td>
+                                <td className="p-4 text-center text-slate-900 font-black font-mono bg-orange-500/5">{formatTo12Hour(sched.time)}</td>
                                 <td className="p-4 text-center">
                                   <div className="flex flex-col items-center justify-center gap-1">
                                     {sched.type === 'in_person' ? (
