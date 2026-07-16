@@ -121,6 +121,7 @@ app.post("/api/settings", requireAdmin, (req, res) => {
 
 let cachedApplicants: Applicant[] = [];
 let cachedAdmins: any[] = [];
+let syncPromise: Promise<void> | null = null;
 
 // Hash password using SHA-256
 function hashPassword(password: string): string {
@@ -428,12 +429,44 @@ let lastSupabaseFetch = 0;
 
 async function ensureDbSynced(req: express.Request, res: express.Response, next: express.NextFunction) {
   initSupabase();
+  
+  // Guarantee initial startup DB synchronization completes before handling requests
+  if (syncPromise) {
+    try {
+      await syncPromise;
+    } catch (err) {
+      console.error("Error waiting for syncPromise in ensureDbSynced:", err);
+    }
+  }
+
+  // Double-check and force synchronous load of admins if the memory cache is empty
+  if (useSupabase && supabase && cachedAdmins.length === 0) {
+    try {
+      const { data: supabaseAdmins, error: adminsErr } = await supabase
+        .from("admins")
+        .select("*");
+      if (!adminsErr && supabaseAdmins && supabaseAdmins.length > 0) {
+        cachedAdmins = supabaseAdmins.map((row: any) => ({
+          id: row.id,
+          email: row.email,
+          passwordHash: row.password_hash,
+          createdAt: row.created_at
+        }));
+        console.log(`Dynamically resolved and loaded ${cachedAdmins.length} admins to prevent authorization failures.`);
+      }
+    } catch (err) {
+      console.error("Critical: Failed to load admins on demand:", err);
+    }
+  }
+
   const isFreshRequired = req.path.startsWith("/api/admin") || req.path === "/api/submit";
   
   if (useSupabase && supabase && isFreshRequired) {
     const now = Date.now();
     if (now - lastSupabaseFetch > 30000) {
       lastSupabaseFetch = now;
+      
+      // Refresh applicants in the background
       supabase
         .from("applicants")
         .select("*")
@@ -445,6 +478,22 @@ async function ensureDbSynced(req: express.Request, res: express.Response, next:
           }
         })
         .catch((err: any) => console.error("Failed to refresh applicants", err));
+
+      // Refresh admins in the background to prevent container cache drift
+      supabase
+        .from("admins")
+        .select("*")
+        .then(({ data: supabaseAdmins, error: adminsErr }: any) => {
+          if (!adminsErr && supabaseAdmins && supabaseAdmins.length > 0) {
+            cachedAdmins = supabaseAdmins.map((row: any) => ({
+              id: row.id,
+              email: row.email,
+              passwordHash: row.password_hash,
+              createdAt: row.created_at
+            }));
+          }
+        })
+        .catch((err: any) => console.error("Failed to refresh admins in background", err));
     }
   }
 
@@ -1461,7 +1510,8 @@ export default app;
 // Handle serving the React SPA correctly
 async function startServer() {
   // Synchronize database with Supabase on start
-  try { await syncDatabase(); } catch (e) { console.error("Initial database sync failed:", e); }
+  syncPromise = syncDatabase();
+  try { await syncPromise; } catch (e) { console.error("Initial database sync failed:", e); }
 
   if (process.env.VERCEL) {
     // On Vercel, request routing for /api/* is handled by serverless functions,
